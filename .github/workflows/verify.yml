@@ -22,7 +22,7 @@ jobs:
       - run: npm run build:web
 
   tauri:
-    name: Tauri cargo check (Windows)
+    name: Tauri build and launch smoke (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,5 +32,14 @@ jobs:
       - run: npm install
       - run: rustup toolchain install stable --profile minimal
       - run: rustup default stable
-      - run: npm run build:web
-      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - run: npm run tauri:build
+      - name: Launch smoke
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path "src-tauri/target/release/shellwarden.exe"
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) {
+            throw "ShellWarden exited during launch smoke with code $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force
