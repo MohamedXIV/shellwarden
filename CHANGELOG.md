@@ -46,5 +46,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Approval-scope enforcement is computed inside ShellWarden; MCP/UI clients cannot assert that an Always grant is risk-approved.
 - Denying a single pending request records the decision without silently creating a persistent deny rule; expired or cancelled requests cannot later be approved.
 - Durable audit storage excludes raw argv, stdout/stderr, and environment values; command summaries persist only the executable plus a redacted argument count.
-- Remote tunnel credentials remain memory-only and the tunnel targets ShellWarden's loopback policy broker rather than the execution core directly.
+- Remote tunnel credentials remain memory-only, are handed only to a `tunnel-client`-named executable in a minimal explicit child environment, and the tunnel targets ShellWarden's loopback policy broker rather than the execution core directly.
 
