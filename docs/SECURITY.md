@@ -106,6 +106,13 @@ Windows implementation must account for:
 
 A path that resolves outside an allowed scope is outside the scope.
 
+Implementation rules:
+- canonicalize both the request cwd and the root at grant creation;
+- persist the resolved canonical root, not the user-entered alias;
+- compare exact roots by path equality and tree roots by path components (`Path::starts_with`), never textual prefix;
+- do not re-resolve a stored root during matching, so replacing a previously granted path with a junction/symlink to a new target does not silently move the authority;
+- reject a request whose cwd cannot be canonicalized before policy evaluation.
+
 ## Environment
 
 Child processes receive a minimal environment.

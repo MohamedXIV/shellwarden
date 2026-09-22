@@ -8,7 +8,7 @@ use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use permission_policy::{
-    PolicyDecision, PolicyEffect, PolicyRequestInput, PolicyRuleView, PolicyState,
+    ApprovalScope, PolicyDecision, PolicyEffect, PolicyRequestInput, PolicyRuleView, PolicyState,
 };
 use process_supervisor::ProcessSupervisor;
 use tauri::{
@@ -42,6 +42,16 @@ fn policy_decide(
     input: PolicyRequestInput,
 ) -> Result<PolicyDecision, String> {
     state.decide(input)
+}
+
+#[tauri::command]
+fn policy_grant_scope(
+    state: tauri::State<'_, PolicyState>,
+    scope: ApprovalScope,
+    input: PolicyRequestInput,
+    risk_policy_allows_always: bool,
+) -> Result<PolicyRuleView, String> {
+    state.grant_scope(scope, input, risk_policy_allows_always)
 }
 
 #[tauri::command]
@@ -157,6 +167,7 @@ pub fn run() {
             execution_core_status,
             execution_activity_snapshot,
             policy_decide,
+            policy_grant_scope,
             policy_grant_session,
             policy_grant_persistent,
             policy_rules,

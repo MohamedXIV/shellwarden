@@ -113,7 +113,11 @@ Persistent rules must be inspectable and revocable from the UI.
 
 The v0.1 policy foundation uses a local SQLite database under the ShellWarden application-data directory. Persistent exact-request rules store a SHA-256 fingerprint of the normalized request plus non-secret metadata (source, executable, operation class, canonical directory, environment-key count, effect, timestamps). Raw argv and environment values are intentionally not persisted.
 
-Until scoped directory grants land, persistent rules are exact-request matches: the source, argv, operation class, canonical working directory, and environment key names must produce the same fingerprint. Session grants are memory-only and additionally require the active session identifier. Deny rules are evaluated before allow rules. An unmatched request resolves to `ask`.
+Scoped approvals build on two hashes: the exact-request fingerprint includes source, argv, operation class, canonical working directory, and environment-key names; the operation fingerprint excludes working directory so the same approved operation can be matched against an explicit path scope without persisting raw argv.
+
+Once and Session grants stay memory-only and exact-request bound. Once is consumed only when its matching request is actually allowed. Exact-directory and directory-tree grants persist the operation fingerprint plus the canonical scope root. Always stores the operation fingerprint without a path root and can only be created when the caller supplies an explicit positive risk-policy gate. Deny rules remain exact-request persistent rules and are evaluated before any allow.
+
+Directory decisions compare canonical `Path` values/components, never string prefixes. Because the requested cwd is canonicalized before matching, `..`, symlink, junction, and reparse-point paths resolve to their target first; if that target is outside the stored canonical root, the scoped rule does not match.
 
 ## Activity model
 
