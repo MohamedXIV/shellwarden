@@ -1076,14 +1076,19 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApprovalScope, PolicyEffect, PolicyOutcome, PolicyRequestInput, PolicyState,
+        now_ms, ApprovalScope, NormalizedPolicyRequest, PolicyEffect, PolicyOutcome,
+        PolicyRequestInput, PolicyState,
     };
+    use rusqlite::{params, Connection};
     use std::{
         fs,
         path::{Path, PathBuf},
-        process::{self, Command},
+        process,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[cfg(windows)]
+    use std::process::Command;
 
     fn unique_root(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
