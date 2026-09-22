@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::{
     env,
     fs,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
     path::PathBuf,
     process::{Command, Stdio},
@@ -53,6 +53,7 @@ struct RemoteAccessInner {
     health_url: Option<String>,
     health_url_file: Option<PathBuf>,
     error: Option<String>,
+    diagnostic_tail: String,
     generation: u64,
 }
 
@@ -64,6 +65,7 @@ impl Default for RemoteAccessInner {
             health_url: None,
             health_url_file: None,
             error: None,
+            diagnostic_tail: String::new(),
             generation: 0,
         }
     }
@@ -151,6 +153,7 @@ impl RemoteAccessState {
             };
             inner.health_url = None;
             inner.error = None;
+            inner.diagnostic_tail.clear();
             inner.health_url_file.take()
         };
 
@@ -218,6 +221,20 @@ impl RemoteAccessState {
         let health_url_file = app_data_dir.join("tunnel-client-health.url");
         let _ = fs::remove_file(&health_url_file);
 
+        let generation = {
+            let mut inner = self.inner();
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.phase = RemoteAccessPhase::Starting;
+            inner.health_url = None;
+            inner.health_url_file = Some(health_url_file.clone());
+            inner.error = None;
+            inner.diagnostic_tail.clear();
+            inner.generation
+        };
+
+        let initial = self.status(app);
+        let _ = app.emit("shellwarden://remote-access", &initial);
+
         let mut command = Command::new(&config.binary);
         apply_minimal_tunnel_environment(&mut command, &config.api_key);
         command
@@ -230,8 +247,8 @@ impl RemoteAccessState {
             .arg(&health_url_file)
             .args(["--log.level", "warn"])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -240,32 +257,67 @@ impl RemoteAccessState {
             command.creation_flags(CREATE_NO_WINDOW);
         }
 
-        let child = command.spawn().map_err(|error| {
+        let mut child = command.spawn().map_err(|error| {
             format!(
                 "failed to launch '{}': {error}. Install tunnel-client or choose its binary path.",
                 config.binary
             )
         })?;
 
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
         app.state::<ProcessSupervisor>()
             .register(TUNNEL_PROCESS_ID, child)
             .map_err(|error| error.to_string())?;
 
-        let generation = {
-            let mut inner = self.inner();
-            inner.generation = inner.generation.wrapping_add(1);
-            inner.phase = RemoteAccessPhase::Starting;
-            inner.health_url = None;
-            inner.health_url_file = Some(health_url_file.clone());
-            inner.error = None;
-            inner.generation
-        };
-
-        let initial = self.status(app);
-        let _ = app.emit("shellwarden://remote-access", &initial);
+        if let Some(stdout) = stdout {
+            spawn_diagnostic_reader(app.clone(), generation, "stdout", stdout);
+        }
+        if let Some(stderr) = stderr {
+            spawn_diagnostic_reader(app.clone(), generation, "stderr", stderr);
+        }
 
         spawn_monitor(app.clone(), generation, health_url_file);
         Ok(())
+    }
+
+    fn append_diagnostic(&self, generation: u64, stream: &str, line: &str) {
+        const MAX_DIAGNOSTIC_BYTES: usize = 12 * 1024;
+
+        let mut inner = self.inner();
+        if inner.generation != generation {
+            return;
+        }
+
+        let cleaned = line.trim_end_matches(['\r', '\n']);
+        if cleaned.is_empty() {
+            return;
+        }
+
+        if !inner.diagnostic_tail.is_empty() {
+            inner.diagnostic_tail.push('\n');
+        }
+        inner
+            .diagnostic_tail
+            .push_str(&format!("[{stream}] {cleaned}"));
+
+        if inner.diagnostic_tail.len() > MAX_DIAGNOSTIC_BYTES {
+            let keep_from = inner
+                .diagnostic_tail
+                .len()
+                .saturating_sub(MAX_DIAGNOSTIC_BYTES);
+            inner.diagnostic_tail = inner.diagnostic_tail[keep_from..].to_string();
+        }
+    }
+
+    fn diagnostic_excerpt(&self, generation: u64) -> Option<String> {
+        let inner = self.inner();
+        if inner.generation != generation || inner.diagnostic_tail.trim().is_empty() {
+            None
+        } else {
+            Some(inner.diagnostic_tail.clone())
+        }
     }
 
     fn mark_error(&self, app: &AppHandle, error: String) {
@@ -329,18 +381,42 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
                 return;
             }
 
-            if !app
+            match app
                 .state::<ProcessSupervisor>()
-                .is_running(TUNNEL_PROCESS_ID)
+                .poll_exit_status(TUNNEL_PROCESS_ID)
             {
-                app.state::<RemoteAccessState>().update_from_monitor(
-                    &app,
-                    generation,
-                    RemoteAccessPhase::Error,
-                    health_url,
-                    Some("tunnel-client exited unexpectedly".to_string()),
-                );
-                return;
+                Ok(Some(status)) => {
+                    // Give stdout/stderr reader threads a moment to flush the final diagnostic.
+                    thread::sleep(Duration::from_millis(80));
+                    let diagnostics = app
+                        .state::<RemoteAccessState>()
+                        .diagnostic_excerpt(generation);
+                    let mut message = format!("tunnel-client exited with status {status}");
+                    if let Some(diagnostics) = diagnostics {
+                        message.push_str("\n");
+                        message.push_str(&diagnostics);
+                    }
+
+                    app.state::<RemoteAccessState>().update_from_monitor(
+                        &app,
+                        generation,
+                        RemoteAccessPhase::Error,
+                        health_url,
+                        Some(message),
+                    );
+                    return;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    app.state::<RemoteAccessState>().update_from_monitor(
+                        &app,
+                        generation,
+                        RemoteAccessPhase::Error,
+                        health_url,
+                        Some(error),
+                    );
+                    return;
+                }
             }
 
             let previous_health_url = health_url.clone();
@@ -378,6 +454,23 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
                 );
                 last_phase = next_phase;
             }
+        }
+    });
+}
+
+fn spawn_diagnostic_reader<R>(
+    app: AppHandle,
+    generation: u64,
+    stream: &'static str,
+    reader: R,
+) where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let reader = BufReader::new(reader);
+        for line in reader.lines().map_while(Result::ok) {
+            app.state::<RemoteAccessState>()
+                .append_diagnostic(generation, stream, &line);
         }
     });
 }
