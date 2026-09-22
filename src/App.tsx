@@ -548,6 +548,7 @@ function Dashboard({
   activityError,
   now,
   onOpenActivity,
+  pendingApprovalCount,
 }: {
   executionCore: ExecutionCoreStatus;
   executions: ExecutionSnapshot[];
@@ -556,10 +557,10 @@ function Dashboard({
   activityError: string | null;
   now: number;
   onOpenActivity: () => void;
+  pendingApprovalCount: number;
 }) {
   const active = executions.filter((execution) => activeStates.has(execution.state));
   const running = executions.filter((execution) => execution.state === "running");
-  const approvals = executions.filter((execution) => execution.state === "awaiting_approval");
   const recent = [...executions].sort((a, b) => b.updatedAtMs - a.updatedAtMs).slice(0, 3);
 
   const health = [
@@ -618,10 +619,10 @@ function Dashboard({
           <strong>{active.length}</strong>
           <small>{running.length} running now</small>
         </article>
-        <article className={approvals.length > 0 ? "attention" : ""}>
+        <article className={pendingApprovalCount > 0 ? "attention" : ""}>
           <span>Needs approval</span>
-          <strong>{approvals.length}</strong>
-          <small>{approvals.length > 0 ? "human decision required" : "nothing blocked"}</small>
+          <strong>{pendingApprovalCount}</strong>
+          <small>{pendingApprovalCount > 0 ? "human decision required" : "nothing blocked"}</small>
         </article>
         <article>
           <span>Tracked</span>
@@ -960,6 +961,7 @@ export function App() {
         executions={executions}
         now={now}
         onOpenActivity={() => setSection("Activity")}
+        pendingApprovalCount={pendingApprovals}
         risks={risks}
       />
     );
