@@ -1,11 +1,15 @@
 mod execution_activity;
 mod execution_core;
 mod lifecycle;
+mod permission_policy;
 mod process_supervisor;
 
 use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
+use permission_policy::{
+    PermissionPolicyState, PolicyDecision, PolicyRequest, PolicyRule,
+};
 use process_supervisor::ProcessSupervisor;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -30,6 +34,41 @@ fn execution_activity_snapshot(
     state: tauri::State<'_, ExecutionActivityState>,
 ) -> Vec<ExecutionSnapshot> {
     state.snapshot()
+}
+
+#[tauri::command]
+fn permission_evaluate(
+    state: tauri::State<'_, PermissionPolicyState>,
+    request: PolicyRequest,
+) -> Result<PolicyDecision, String> {
+    state.evaluate(&request)
+}
+
+#[tauri::command]
+fn permission_rules(
+    state: tauri::State<'_, PermissionPolicyState>,
+) -> Result<Vec<PolicyRule>, String> {
+    state.list_rules()
+}
+
+#[tauri::command]
+fn permission_revoke(
+    state: tauri::State<'_, PermissionPolicyState>,
+    rule_id: String,
+) -> Result<bool, String> {
+    state.revoke(&rule_id)
+}
+
+#[tauri::command]
+fn permission_reset_session(state: tauri::State<'_, PermissionPolicyState>) -> usize {
+    state.reset_session()
+}
+
+#[tauri::command]
+fn permission_reset_persistent(
+    state: tauri::State<'_, PermissionPolicyState>,
+) -> Result<usize, String> {
+    state.reset_persistent()
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -93,9 +132,22 @@ pub fn run() {
         .manage(ExecutionCoreState::default())
         .invoke_handler(tauri::generate_handler![
             execution_core_status,
-            execution_activity_snapshot
+            execution_activity_snapshot,
+            permission_evaluate,
+            permission_rules,
+            permission_revoke,
+            permission_reset_session,
+            permission_reset_persistent
         ])
         .setup(|app| {
+            let app_data = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| std::io::Error::other(format!("app data path unavailable: {error}")))?;
+            let permission_store = PermissionPolicyState::open(&app_data.join("permissions.sqlite3"))
+                .map_err(std::io::Error::other)?;
+            app.manage(permission_store);
+
             app.state::<ExecutionCoreState>().start(&repository_root());
             install_tray(app)?;
             Ok(())
