@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { AuditView, PermissionsView, type AuditEntry, type PolicyRuleView } from "./ManagementViews";
 import { APP_VERSION } from "./version";
 
 type Section = "Dashboard" | "Activity" | "Approvals" | "Permissions" | "Audit" | "Settings";
@@ -41,6 +42,7 @@ type ExecutionSnapshot = {
   stderrTail: string;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
+  policyRuleId: string | null;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -82,6 +84,7 @@ type ApprovalView = {
   expiresAtMs: number | null;
   resolvedAtMs: number | null;
   resolutionScope: ApprovalScope | null;
+  decisionRuleId: string | null;
   decisionReason: string | null;
 };
 
@@ -99,6 +102,7 @@ type PolicyDecisionEvent = {
   timestampMs: number;
   source: string;
   executable: string;
+  argumentCount: number;
   operationClass: string;
   directory: string;
   outcome: PolicyOutcome;
@@ -748,21 +752,15 @@ function ActivityView({
   );
 }
 
-function Placeholder({ section }: { section: Exclude<Section, "Dashboard" | "Activity"> }) {
-  const copy: Record<typeof section, string> = {
-    Approvals: "Approval requests are handled on the live Approvals surface.",
-    Permissions:
-      "Permission inspection, revoke, and reset management will be surfaced here after approval UX.",
-    Audit: "Durable policy and execution history belongs to the Audit slice; recent decisions are session-only today.",
-    Settings:
-      "Transport setup and application preferences remain intentionally small until remote connectivity lands.",
-  };
-
+function Placeholder({ section }: { section: "Settings" }) {
   return (
     <section className="panel section-placeholder">
-      <span className="section-kicker">{section.toUpperCase()}</span>
-      <h1>{section}</h1>
-      <p>{copy[section]}</p>
+      <span className="section-kicker">SETTINGS</span>
+      <h1>Settings</h1>
+      <p>
+        Transport setup and application preferences remain intentionally small until remote
+        connectivity lands.
+      </p>
     </section>
   );
 }
@@ -774,8 +772,12 @@ export function App() {
   const [risks, setRisks] = useState<Record<string, RiskAssessment>>({});
   const [decisions, setDecisions] = useState<PolicyDecisionEvent[]>([]);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
+  const [rules, setRules] = useState<PolicyRuleView[]>([]);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [managementError, setManagementError] = useState<string | null>(null);
+  const [managementBusy, setManagementBusy] = useState<string | null>(null);
   const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -783,6 +785,20 @@ export function App() {
     () => approvals.filter((approval) => approval.status === "pending").length,
     [approvals],
   );
+
+  const refreshManagement = useCallback(async () => {
+    try {
+      const [permissionRules, audit] = await Promise.all([
+        invoke<PolicyRuleView[]>("policy_rules"),
+        invoke<AuditEntry[]>("audit_entries", { limit: 500 }),
+      ]);
+      setRules(permissionRules);
+      setAuditEntries(audit);
+      setManagementError(null);
+    } catch (error: unknown) {
+      setManagementError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -818,6 +834,7 @@ export function App() {
         if (!disposed) {
           setExecutions(activity);
           setDecisions(recentDecisions);
+      await refreshManagement();
           setActivityError(null);
         }
       } catch (error: unknown) {
@@ -895,6 +912,70 @@ export function App() {
       window.clearInterval(approvalTimer);
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let stopAudit: UnlistenFn | undefined;
+
+    void refreshManagement();
+
+    listen("shellwarden://audit", () => {
+      if (!disposed) void refreshManagement();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopAudit = stop;
+    });
+
+    const managementTimer = window.setInterval(() => {
+      if (!disposed) void refreshManagement();
+    }, 5000);
+
+    return () => {
+      disposed = true;
+      stopAudit?.();
+      window.clearInterval(managementTimer);
+    };
+  }, [refreshManagement]);
+
+  async function revokeRule(ruleId: string) {
+    setManagementBusy("revoke:" + ruleId);
+    try {
+      await invoke<boolean>("policy_revoke", { ruleId });
+      await refreshManagement();
+    } finally {
+      setManagementBusy(null);
+    }
+  }
+
+  async function resetSessionRules() {
+    setManagementBusy("reset-session");
+    try {
+      await invoke<number>("policy_reset_all_sessions");
+      await refreshManagement();
+    } finally {
+      setManagementBusy(null);
+    }
+  }
+
+  async function resetDirectoryScopes() {
+    setManagementBusy("reset-directory");
+    try {
+      await invoke<number>("policy_reset_directory_scoped");
+      await refreshManagement();
+    } finally {
+      setManagementBusy(null);
+    }
+  }
+
+  async function resetPersistentRules() {
+    setManagementBusy("reset-persistent");
+    try {
+      await invoke<number>("policy_reset_persistent");
+      await refreshManagement();
+    } finally {
+      setManagementBusy(null);
+    }
+  }
 
   async function resolveApproval(approvalId: string, scope: ApprovalScope) {
     setResolvingApproval(`${approvalId}:${scope}`);
@@ -984,8 +1065,22 @@ export function App() {
         resolving={resolvingApproval}
       />
     );
+  } else if (section === "Permissions") {
+    content = (
+      <PermissionsView
+        busy={managementBusy}
+        error={managementError}
+        onResetDirectoryScopes={resetDirectoryScopes}
+        onResetPersistent={resetPersistentRules}
+        onResetSessions={resetSessionRules}
+        onRevoke={revokeRule}
+        rules={rules}
+      />
+    );
+  } else if (section === "Audit") {
+    content = <AuditView entries={auditEntries} error={managementError} />;
   } else {
-    content = <Placeholder section={section} />;
+    content = <Placeholder section="Settings" />;
   }
 
   return (
