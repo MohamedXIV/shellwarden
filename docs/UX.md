@@ -67,7 +67,9 @@ Always allow       (only when permitted)
 Deny
 ```
 
-Critical operations use stronger copy and may expose fewer persistence choices.
+Critical operations use stronger copy and expose only the scopes returned by the deterministic risk engine. Unsupported scopes are not rendered.
+
+The live Approvals surface reads ShellWarden's pending-approval state directly. A decision immediately resolves the pending record, updates the linked Activity execution when one exists, and records a recent policy decision. Requests that are cancelled or expire remain visible as terminal records and cannot be approved afterward.
 
 ## Tray
 
@@ -87,7 +89,7 @@ Pause/Resume Remote Access
 Exit
 ```
 
-Pending approvals should be visible through tray state/notification.
+Pending approvals are visible through dynamic tray text and tooltip state. Selecting the approval tray item opens ShellWarden directly on Approvals. New pending requests also request Windows taskbar/window attention; Critical requests use the stronger attention level.
 
 ## Exit
 

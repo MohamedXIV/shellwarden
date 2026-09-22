@@ -1,3 +1,4 @@
+mod approval_state;
 mod execution_activity;
 mod execution_core;
 mod lifecycle;
@@ -5,7 +6,10 @@ mod permission_policy;
 mod process_supervisor;
 mod risk_policy;
 
-use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
+use approval_state::{
+    ApprovalEvent, ApprovalResolution, ApprovalState, ApprovalStatus, ApprovalView,
+};
+use execution_activity::{ExecutionActivityState, ExecutionSnapshot, ExecutionStatus};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use permission_policy::{
@@ -17,7 +21,7 @@ use risk_policy::{assess, RiskAssessment, RiskRequestInput};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager, RunEvent, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, UserAttentionType, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -25,6 +29,7 @@ const TRAY_ID: &str = "shellwarden-tray";
 const MENU_OPEN: &str = "open";
 const MENU_STATUS: &str = "status";
 const MENU_ACTIVITY: &str = "activity";
+const MENU_APPROVALS: &str = "approvals";
 const MENU_EXIT: &str = "exit";
 
 #[tauri::command]
@@ -37,6 +42,21 @@ fn execution_activity_snapshot(
     state: tauri::State<'_, ExecutionActivityState>,
 ) -> Vec<ExecutionSnapshot> {
     state.snapshot()
+}
+
+#[tauri::command]
+fn approval_snapshot(state: tauri::State<'_, ApprovalState>) -> Vec<ApprovalView> {
+    state.snapshot()
+}
+
+#[tauri::command]
+fn approval_resolve(
+    approvals: tauri::State<'_, ApprovalState>,
+    policy: tauri::State<'_, PolicyState>,
+    approval_id: String,
+    scope: ApprovalScope,
+) -> Result<ApprovalResolution, String> {
+    approvals.resolve(&approval_id, scope, &policy)
 }
 
 #[tauri::command]
@@ -117,7 +137,7 @@ fn policy_reset_persistent(state: tauri::State<'_, PolicyState>) -> Result<usize
     state.reset_persistent()
 }
 
-fn show_main_window(app: &tauri::AppHandle) {
+fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
@@ -125,7 +145,24 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
+fn running_execution_count(app: &AppHandle) -> usize {
+    app.state::<ExecutionActivityState>()
+        .snapshot()
+        .iter()
+        .filter(|execution| {
+            matches!(
+                execution.state,
+                ExecutionStatus::Requested | ExecutionStatus::Queued | ExecutionStatus::Running
+            )
+        })
+        .count()
+}
+
+fn build_tray_menu(
+    app: &AppHandle,
+    running: usize,
+    pending: usize,
+) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open ShellWarden", true, None::<&str>)?;
     let status = MenuItem::with_id(
         app,
@@ -137,16 +174,59 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let activity = MenuItem::with_id(
         app,
         MENU_ACTIVITY,
-        "0 tasks running · 0 approvals waiting",
+        format!("{running} tasks running"),
         false,
+        None::<&str>,
+    )?;
+    let approvals = MenuItem::with_id(
+        app,
+        MENU_APPROVALS,
+        if pending == 0 {
+            "No approvals waiting".to_string()
+        } else if pending == 1 {
+            "Review 1 waiting approval".to_string()
+        } else {
+            format!("Review {pending} waiting approvals")
+        },
+        pending > 0,
         None::<&str>,
     )?;
     let separator_before_exit = PredefinedMenuItem::separator(app)?;
     let exit = MenuItem::with_id(app, MENU_EXIT, "Exit ShellWarden", true, None::<&str>)?;
-    let menu = Menu::with_items(
+
+    Menu::with_items(
         app,
-        &[&open, &status, &activity, &separator_before_exit, &exit],
-    )?;
+        &[
+            &open,
+            &status,
+            &activity,
+            &approvals,
+            &separator_before_exit,
+            &exit,
+        ],
+    )
+}
+
+fn update_tray_attention(app: &AppHandle) -> tauri::Result<()> {
+    let running = running_execution_count(app);
+    let pending = app.state::<ApprovalState>().pending_count();
+    let menu = build_tray_menu(app, running, pending)?;
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(menu))?;
+        let tooltip = if pending == 0 {
+            format!("ShellWarden — {running} tasks running")
+        } else {
+            format!("ShellWarden — {pending} approvals waiting")
+        };
+        tray.set_tooltip(Some(tooltip))?;
+    }
+
+    Ok(())
+}
+
+fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let menu = build_tray_menu(app.handle(), 0, 0)?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("ShellWarden — local control center")
@@ -154,6 +234,10 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_OPEN => show_main_window(app),
+            MENU_APPROVALS => {
+                show_main_window(app);
+                let _ = app.emit("shellwarden://open-approvals", ());
+            }
             MENU_EXIT => {
                 app.state::<LifecycleState>().begin_exit();
                 app.exit(0);
@@ -169,6 +253,25 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn apply_approval_to_activity(app: &AppHandle, approval: &ApprovalView) {
+    let Some(execution_id) = approval.execution_id.as_deref() else {
+        return;
+    };
+
+    let next = match approval.status {
+        ApprovalStatus::Pending => Some(ExecutionStatus::AwaitingApproval),
+        ApprovalStatus::Allowed => Some(ExecutionStatus::Queued),
+        ApprovalStatus::Denied => Some(ExecutionStatus::Denied),
+        ApprovalStatus::Cancelled | ApprovalStatus::Expired => Some(ExecutionStatus::Cancelled),
+    };
+
+    if let Some(next) = next {
+        let _ = app
+            .state::<ExecutionActivityState>()
+            .transition(execution_id, next);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -177,9 +280,12 @@ pub fn run() {
         .manage(ExecutionActivityState::default())
         .manage(ExecutionCoreState::default())
         .manage(PolicyState::default())
+        .manage(ApprovalState::default())
         .invoke_handler(tauri::generate_handler![
             execution_core_status,
             execution_activity_snapshot,
+            approval_snapshot,
+            approval_resolve,
             policy_decide,
             policy_recent_decisions,
             policy_grant_scope,
@@ -202,10 +308,40 @@ pub fn run() {
             app.state::<ExecutionCoreState>().start(&repository_root());
 
             let activity_events = app.state::<ExecutionActivityState>().subscribe();
-            let app_handle = app.handle().clone();
+            let activity_app = app.handle().clone();
             std::thread::spawn(move || {
                 while let Ok(event) = activity_events.recv() {
-                    let _ = app_handle.emit("shellwarden://execution-activity", event);
+                    let _ = activity_app.emit("shellwarden://execution-activity", event);
+                    let _ = update_tray_attention(&activity_app);
+                }
+            });
+
+            let approval_events = app.state::<ApprovalState>().subscribe();
+            let approval_app = app.handle().clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = approval_events.recv() {
+                    match &event {
+                        ApprovalEvent::Changed { approval, .. } => {
+                            apply_approval_to_activity(&approval_app, approval);
+                            if approval.status == ApprovalStatus::Pending {
+                                if let Some(window) =
+                                    approval_app.get_webview_window(MAIN_WINDOW_LABEL)
+                                {
+                                    let attention = if matches!(
+                                        approval.risk.class,
+                                        risk_policy::RiskClass::Critical
+                                    ) {
+                                        UserAttentionType::Critical
+                                    } else {
+                                        UserAttentionType::Informational
+                                    };
+                                    let _ = window.request_user_attention(Some(attention));
+                                }
+                            }
+                        }
+                    }
+                    let _ = approval_app.emit("shellwarden://approval", event);
+                    let _ = update_tray_attention(&approval_app);
                 }
             });
 

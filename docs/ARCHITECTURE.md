@@ -144,6 +144,14 @@ Every execution launched through ShellWarden must be tracked.
 
 On Windows, ShellWarden currently uses `taskkill /T /F` as the process-tree termination primitive for managed children and the Python execution broker, with direct child termination as fallback. This prevents hard Exit from intentionally leaving broker descendants behind. A future Job Object implementation may replace this primitive without changing the activity model.
 
+## Approval queue
+
+Requests that evaluate to `ask` can be represented as bounded in-memory pending approvals before transport-specific code is added. Each record carries the normalized request, deterministic risk assessment, optional linked execution ID, request/expiry timestamps, and terminal resolution state.
+
+The approval state owns no hidden authority. Allow resolutions call the same risk-gated policy grant path used elsewhere; Deny records a one-shot policy decision without silently creating a persistent deny rule. Cancelled or expired requests are terminal and cannot later be approved.
+
+Approval events update the desktop UI, tray attention state, and linked execution lifecycle. Durable approval/audit history remains the responsibility of the Audit slice rather than this in-memory queue.
+
 ## Transport boundary
 
 Secure MCP Tunnel is the first remote transport, not the definition of ShellWarden.

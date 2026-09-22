@@ -1022,6 +1022,25 @@ impl PolicyState {
             .recent_decisions())
     }
 
+    pub fn record_manual_denial(
+        &self,
+        input: PolicyRequestInput,
+        reason: impl Into<String>,
+    ) -> Result<PolicyDecision, String> {
+        let request = NormalizedPolicyRequest::from_input(input)?;
+        let mut engine = self.engine();
+        let engine = engine
+            .as_mut()
+            .ok_or_else(|| "policy engine is not initialized".to_string())?;
+        let decision = PolicyDecision {
+            outcome: PolicyOutcome::Deny,
+            rule_id: None,
+            reason: reason.into(),
+        };
+        engine.record_decision(&request, &decision);
+        Ok(decision)
+    }
+
     pub fn grant_scope_checked(
         &self,
         scope: ApprovalScope,
