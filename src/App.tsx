@@ -56,6 +56,44 @@ type RiskAssessment = {
 
 type PolicyOutcome = "allow" | "ask" | "deny";
 
+type ApprovalScope =
+  | "once"
+  | "session"
+  | "exact_request"
+  | "exact_directory"
+  | "directory_tree"
+  | "always"
+  | "deny";
+
+type ApprovalStatus = "pending" | "allowed" | "denied" | "cancelled" | "expired";
+
+type ApprovalView = {
+  id: string;
+  executionId: string | null;
+  source: string;
+  sessionId: string | null;
+  command: string[];
+  operationClass: string;
+  directory: string;
+  environmentKeys: string[];
+  risk: RiskAssessment;
+  status: ApprovalStatus;
+  requestedAtMs: number;
+  expiresAtMs: number | null;
+  resolvedAtMs: number | null;
+  resolutionScope: ApprovalScope | null;
+  decisionReason: string | null;
+};
+
+type ApprovalResolution = {
+  approval: ApprovalView;
+  decision: {
+    outcome: PolicyOutcome;
+    ruleId: string | null;
+    reason: string;
+  } | null;
+};
+
 type PolicyDecisionEvent = {
   sequence: number;
   timestampMs: number;
@@ -134,6 +172,240 @@ function executionDuration(execution: ExecutionSnapshot, now: number) {
 
 function riskLabel(risk?: RiskAssessment) {
   return risk ? risk.class.toUpperCase() : "ASSESSING";
+}
+
+const approvalScopeCopy: Record<
+  ApprovalScope,
+  { title: string; detail: string; tone?: "danger" }
+> = {
+  once: {
+    title: "Allow once",
+    detail: "Authorize this exact request one time.",
+  },
+  session: {
+    title: "Allow this session",
+    detail: "Authorize this exact request until ShellWarden exits.",
+  },
+  exact_request: {
+    title: "Remember exact request",
+    detail: "Persist only this exact command and canonical working directory.",
+  },
+  exact_directory: {
+    title: "Allow in this directory",
+    detail: "Persist this operation for this canonical directory only.",
+  },
+  directory_tree: {
+    title: "Allow in this directory tree",
+    detail: "Persist this operation for this canonical directory and descendants.",
+  },
+  always: {
+    title: "Always allow",
+    detail: "Persist this operation regardless of working directory.",
+  },
+  deny: {
+    title: "Deny",
+    detail: "Reject this request without creating a persistent deny rule.",
+    tone: "danger",
+  },
+};
+
+function approvalStatusLabel(status: ApprovalStatus) {
+  switch (status) {
+    case "allowed":
+      return "Allowed";
+    case "denied":
+      return "Denied";
+    case "cancelled":
+      return "Cancelled";
+    case "expired":
+      return "Expired";
+    default:
+      return "Waiting";
+  }
+}
+
+function approvalAge(approval: ApprovalView, now: number) {
+  const end = approval.resolvedAtMs ?? now;
+  return formatDuration(Math.max(0, end - approval.requestedAtMs));
+}
+
+function ApprovalCard({
+  approval,
+  now,
+  resolving,
+  onResolve,
+}: {
+  approval: ApprovalView;
+  now: number;
+  resolving: string | null;
+  onResolve: (approvalId: string, scope: ApprovalScope) => void;
+}) {
+  const pending = approval.status === "pending";
+  const critical = approval.risk.class === "critical";
+  const expiryRemaining =
+    approval.expiresAtMs == null ? null : Math.max(0, approval.expiresAtMs - now);
+
+  return (
+    <article className={critical ? "approval-card critical" : "approval-card"}>
+      <div className="approval-card-header">
+        <div>
+          <div className="approval-title-row">
+            <span className={`approval-risk risk-${approval.risk.class}`}>
+              {approval.risk.class.toUpperCase()}
+            </span>
+            <span className={`approval-status approval-status-${approval.status}`}>
+              {approvalStatusLabel(approval.status)}
+            </span>
+          </div>
+          <code className="approval-command" title={commandText(approval.command)}>
+            {commandText(approval.command)}
+          </code>
+        </div>
+        <div className="approval-age">
+          <strong>{approvalAge(approval, now)}</strong>
+          <span>{pending ? "waiting" : "resolved"}</span>
+        </div>
+      </div>
+
+      <div className="approval-meta">
+        <span>Requester: {approval.source}</span>
+        <span title={approval.directory}>cwd: {shortDirectory(approval.directory)}</span>
+        {approval.sessionId && <span>session: {approval.sessionId}</span>}
+        {expiryRemaining != null && pending && (
+          <span className="approval-expiry">
+            expires in {formatDuration(expiryRemaining)}
+          </span>
+        )}
+      </div>
+
+      <div className={critical ? "approval-warning critical" : "approval-warning"}>
+        <strong>{critical ? "Critical request" : "Why ShellWarden is asking"}</strong>
+        <p>{approval.risk.reason}</p>
+        {critical && (
+          <p>
+            Persistent approval is intentionally unavailable. Only temporary scopes exposed by the
+            risk policy can be selected.
+          </p>
+        )}
+      </div>
+
+      {pending ? (
+        <div className="scope-grid">
+          {(approval.risk.allowedScopes as ApprovalScope[]).map((scope) => {
+            const copy = approvalScopeCopy[scope];
+            const busy = resolving === `${approval.id}:${scope}`;
+            return (
+              <button
+                className={copy.tone === "danger" ? "scope-option danger" : "scope-option"}
+                disabled={resolving !== null}
+                key={scope}
+                onClick={() => onResolve(approval.id, scope)}
+                type="button"
+              >
+                <span className="scope-title">{busy ? "Applying…" : copy.title}</span>
+                <span className="scope-detail">{copy.detail}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="approval-terminal">
+          <span>
+            {approval.resolutionScope
+              ? approvalScopeCopy[approval.resolutionScope].title
+              : approvalStatusLabel(approval.status)}
+          </span>
+          <p>{approval.decisionReason ?? "This request no longer needs a decision."}</p>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ApprovalsView({
+  approvals,
+  error,
+  now,
+  resolving,
+  onResolve,
+}: {
+  approvals: ApprovalView[];
+  error: string | null;
+  now: number;
+  resolving: string | null;
+  onResolve: (approvalId: string, scope: ApprovalScope) => void;
+}) {
+  const pending = approvals.filter((approval) => approval.status === "pending");
+  const recent = approvals.filter((approval) => approval.status !== "pending").slice(0, 10);
+
+  return (
+    <section className="approvals-page">
+      <div className="page-heading">
+        <div>
+          <span className="section-kicker">HUMAN AUTHORITY</span>
+          <h1>Approvals</h1>
+          <p>
+            ShellWarden only offers scopes allowed by the deterministic risk policy for each
+            request.
+          </p>
+        </div>
+        <div className={pending.length > 0 ? "approval-count attention" : "approval-count"}>
+          <strong>{pending.length}</strong>
+          <span>waiting</span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="panel inline-error large">
+          <strong>Could not read approvals</strong>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {pending.length === 0 ? (
+        <section className="panel approval-empty">
+          <div className="empty-mark">◇</div>
+          <strong>No approvals waiting</strong>
+          <p>
+            When an MCP requester needs authority that policy cannot grant automatically, the
+            request appears here and the tray calls for attention.
+          </p>
+        </section>
+      ) : (
+        <div className="approval-list">
+          {pending.map((approval) => (
+            <ApprovalCard
+              approval={approval}
+              key={approval.id}
+              now={now}
+              onResolve={onResolve}
+              resolving={resolving}
+            />
+          ))}
+        </div>
+      )}
+
+      {recent.length > 0 && (
+        <section className="approval-recent">
+          <div className="approval-section-heading">
+            <span className="section-kicker">RECENTLY RESOLVED</span>
+            <span>{recent.length} retained this session</span>
+          </div>
+          <div className="approval-list compact">
+            {recent.map((approval) => (
+              <ApprovalCard
+                approval={approval}
+                key={approval.id}
+                now={now}
+                onResolve={onResolve}
+                resolving={resolving}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+    </section>
+  );
 }
 
 function ActivityCard({
@@ -477,8 +749,7 @@ function ActivityView({
 
 function Placeholder({ section }: { section: Exclude<Section, "Dashboard" | "Activity"> }) {
   const copy: Record<typeof section, string> = {
-    Approvals:
-      "Interactive approval cards and attention notifications arrive in the next roadmap slice.",
+    Approvals: "Approval requests are handled on the live Approvals surface.",
     Permissions:
       "Permission inspection, revoke, and reset management will be surfaced here after approval UX.",
     Audit: "Durable policy and execution history belongs to the Audit slice; recent decisions are session-only today.",
@@ -501,12 +772,15 @@ export function App() {
   const [executions, setExecutions] = useState<ExecutionSnapshot[]>([]);
   const [risks, setRisks] = useState<Record<string, RiskAssessment>>({});
   const [decisions, setDecisions] = useState<PolicyDecisionEvent[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const pendingApprovals = useMemo(
-    () => executions.filter((execution) => execution.state === "awaiting_approval").length,
-    [executions],
+    () => approvals.filter((approval) => approval.status === "pending").length,
+    [approvals],
   );
 
   useEffect(() => {
@@ -576,6 +850,77 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
+    let stopApproval: UnlistenFn | undefined;
+    let stopOpenApprovals: UnlistenFn | undefined;
+
+    const refreshApprovals = async () => {
+      try {
+        const snapshot = await invoke<ApprovalView[]>("approval_snapshot");
+        if (!disposed) {
+          setApprovals(snapshot);
+          setApprovalError(null);
+        }
+      } catch (error: unknown) {
+        if (!disposed) {
+          setApprovalError(error instanceof Error ? error.message : String(error));
+        }
+      }
+    };
+
+    void refreshApprovals();
+
+    listen("shellwarden://approval", () => {
+      void refreshApprovals();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopApproval = stop;
+    });
+
+    listen("shellwarden://open-approvals", () => {
+      if (!disposed) setSection("Approvals");
+      void refreshApprovals();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopOpenApprovals = stop;
+    });
+
+    const approvalTimer = window.setInterval(() => void refreshApprovals(), 2000);
+
+    return () => {
+      disposed = true;
+      stopApproval?.();
+      stopOpenApprovals?.();
+      window.clearInterval(approvalTimer);
+    };
+  }, []);
+
+  async function resolveApproval(approvalId: string, scope: ApprovalScope) {
+    setResolvingApproval(`${approvalId}:${scope}`);
+    setApprovalError(null);
+    try {
+      await invoke<ApprovalResolution>("approval_resolve", { approvalId, scope });
+      const [approvalSnapshot, activity, recentDecisions] = await Promise.all([
+        invoke<ApprovalView[]>("approval_snapshot"),
+        invoke<ExecutionSnapshot[]>("execution_activity_snapshot"),
+        invoke<PolicyDecisionEvent[]>("policy_recent_decisions"),
+      ]);
+      setApprovals(approvalSnapshot);
+      setExecutions(activity);
+      setDecisions(recentDecisions);
+    } catch (error: unknown) {
+      setApprovalError(error instanceof Error ? error.message : String(error));
+      try {
+        setApprovals(await invoke<ApprovalView[]>("approval_snapshot"));
+      } catch {
+        // Preserve the original resolution error; polling/listeners can recover later.
+      }
+    } finally {
+      setResolvingApproval(null);
+    }
+  }
+
+  useEffect(() => {
     let cancelled = false;
     const missing = executions.filter((execution) => !risks[execution.request.id]);
     if (missing.length === 0) return;
@@ -625,6 +970,16 @@ export function App() {
         executions={executions}
         now={now}
         risks={risks}
+      />
+    );
+  } else if (section === "Approvals") {
+    content = (
+      <ApprovalsView
+        approvals={approvals}
+        error={approvalError}
+        now={now}
+        onResolve={resolveApproval}
+        resolving={resolvingApproval}
       />
     );
   } else {
