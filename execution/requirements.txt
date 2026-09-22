@@ -1,0 +1,2 @@
+# Keep this exact pin aligned with execution/broker.py and THIRD_PARTY_NOTICES.md.
+mcp-shell-server==1.1.12

@@ -22,17 +22,23 @@ jobs:
       - run: npm run build:web
 
   tauri:
-    name: Tauri lifecycle verify (Windows)
+    name: Tauri execution-core verify (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
       - run: npm install
+      - run: python -m pip install --disable-pip-version-check -r execution/requirements.txt
+      - run: python execution/test_broker.py
       - run: rustup toolchain install stable --profile minimal
       - run: rustup default stable
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --manifest-path src-tauri/Cargo.toml pinned_upstream_executes_harmless_git_probe -- --ignored
       - run: npm run tauri:build
       - name: Launch smoke
         shell: pwsh

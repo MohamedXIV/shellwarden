@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Native Windows tray lifecycle with Open and Exit actions plus visible placeholder status for running work and approvals.
 - Managed-process supervisor foundation that terminates registered child processes during ShellWarden shutdown.
 - Rust lifecycle tests and a documented manual Windows tray/exit verification checklist.
+- Pinned `mcp-shell-server 1.1.12` execution core behind a ShellWarden-owned JSON-lines broker boundary.
+- Execution-core health/version status surfaced in the desktop dashboard and verified with a real harmless `git --version` broker probe.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -22,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Security
 - Established the core rule that ShellWarden is a trusted execution gateway, not an OS sandbox.
 - Established Windows-first least-privilege and explicit lifecycle requirements for v0.1.
-- Started the desktop application with only Tauri core permissions and no shell, remote transport, or execution capability enabled.
-- Explicit tray Exit now initiates managed-process cleanup before the application terminates; no Windows Service or hidden always-on ShellWarden helper is introduced.
+- Started the desktop application with only Tauri core permissions and no remote transport capability enabled.
+- Explicit tray Exit initiates managed-process cleanup before the application terminates; no Windows Service or hidden always-on ShellWarden helper is introduced.
+- Bootstrap execution remains local-only, accepts argv arrays rather than shell strings, exposes no per-request environment overrides, and admits only `git` before upstream validation.
+- Added a process-local Windows compatibility adapter for the pinned upstream package instead of weakening or replacing its validation path.
 
