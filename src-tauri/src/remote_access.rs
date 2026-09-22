@@ -76,6 +76,10 @@ impl RemoteAccessState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn generation(&self) -> u64 {
+        self.inner().generation
+    }
+
     pub fn status(&self, app: &AppHandle) -> RemoteAccessStatus {
         let inner = self.inner();
         RemoteAccessStatus {
@@ -269,7 +273,7 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
         loop {
             thread::sleep(Duration::from_millis(350));
 
-            let current_generation = app.state::<RemoteAccessState>().inner().generation;
+            let current_generation = app.state::<RemoteAccessState>().generation();
             if current_generation != generation {
                 return;
             }
