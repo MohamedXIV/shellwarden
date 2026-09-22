@@ -79,7 +79,11 @@ Example classes:
 - **External side effect / high:** push, publish, deployment, network mutation.
 - **Critical:** force push, destructive recursive deletion, disk/registry operations, privilege elevation, arbitrary general-purpose shells/interpreters.
 
-Not every scope is offered for every risk class. Critical requests may be restricted to Once or Session, or denied entirely.
+Not every scope is offered for every risk class. The v0.1 scope matrix is deterministic: Low may use all allow scopes; Medium cannot use Always; High is limited to Once, Session, Exact Request, or Exact Directory; Critical is limited to Once or Session. Deny is always available.
+
+The classifier includes explicit rules for general-purpose shells and eval interpreters, force/destructive Git operations, package publishing, infrastructure/cluster mutation, destructive filesystem commands, privilege elevation, and known read/write Git operations. Unknown operation classes default to Medium rather than Low.
+
+Risk classification is defense in depth and a UX/persistence control. It does not replace `mcp-shell-server` argument validation, OS least privilege, or stronger sandboxing when required.
 
 ## General-purpose interpreters
 
