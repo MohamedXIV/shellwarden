@@ -834,7 +834,6 @@ export function App() {
         if (!disposed) {
           setExecutions(activity);
           setDecisions(recentDecisions);
-      await refreshManagement();
           setActivityError(null);
         }
       } catch (error: unknown) {
@@ -942,6 +941,8 @@ export function App() {
     try {
       await invoke<boolean>("policy_revoke", { ruleId });
       await refreshManagement();
+    } catch (error: unknown) {
+      setManagementError(error instanceof Error ? error.message : String(error));
     } finally {
       setManagementBusy(null);
     }
@@ -952,6 +953,8 @@ export function App() {
     try {
       await invoke<number>("policy_reset_all_sessions");
       await refreshManagement();
+    } catch (error: unknown) {
+      setManagementError(error instanceof Error ? error.message : String(error));
     } finally {
       setManagementBusy(null);
     }
@@ -962,6 +965,8 @@ export function App() {
     try {
       await invoke<number>("policy_reset_directory_scoped");
       await refreshManagement();
+    } catch (error: unknown) {
+      setManagementError(error instanceof Error ? error.message : String(error));
     } finally {
       setManagementBusy(null);
     }
@@ -972,6 +977,8 @@ export function App() {
     try {
       await invoke<number>("policy_reset_persistent");
       await refreshManagement();
+    } catch (error: unknown) {
+      setManagementError(error instanceof Error ? error.message : String(error));
     } finally {
       setManagementBusy(null);
     }
@@ -990,6 +997,7 @@ export function App() {
       setApprovals(approvalSnapshot);
       setExecutions(activity);
       setDecisions(recentDecisions);
+      await refreshManagement();
     } catch (error: unknown) {
       setApprovalError(error instanceof Error ? error.message : String(error));
       try {
