@@ -121,6 +121,7 @@ impl RemoteAccessState {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "tunnel-client".to_string());
+        validate_tunnel_binary(&binary)?;
 
         {
             let mut inner = self.inner();
@@ -380,6 +381,23 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
     });
 }
 
+fn validate_tunnel_binary(binary: &str) -> Result<(), String> {
+    let file_name = PathBuf::from(binary)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or_else(|| "tunnel-client binary path is invalid".to_string())?;
+
+    if matches!(file_name.as_str(), "tunnel-client" | "tunnel-client.exe") {
+        Ok(())
+    } else {
+        Err(
+            "ShellWarden only passes the tunnel runtime key to an executable named 'tunnel-client' or 'tunnel-client.exe'."
+                .to_string(),
+        )
+    }
+}
+
 fn validate_tunnel_id(tunnel_id: &str) -> Result<(), String> {
     let Some(suffix) = tunnel_id.strip_prefix("tunnel_") else {
         return Err("tunnel ID must start with 'tunnel_'".to_string());
@@ -434,12 +452,20 @@ fn probe_ready(base_url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{probe_ready, validate_tunnel_id};
+    use super::{probe_ready, validate_tunnel_binary, validate_tunnel_id};
     use std::{
         io::{Read, Write},
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn tunnel_binary_name_is_restricted_before_receiving_runtime_key() {
+        assert!(validate_tunnel_binary("tunnel-client").is_ok());
+        assert!(validate_tunnel_binary(r"C:\Tools\tunnel-client.exe").is_ok());
+        assert!(validate_tunnel_binary("powershell.exe").is_err());
+        assert!(validate_tunnel_binary(r"C:\Tools\renamed-client.exe").is_err());
+    }
 
     #[test]
     fn tunnel_id_validation_matches_runtime_contract() {
