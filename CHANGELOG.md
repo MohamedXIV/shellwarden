@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Structured execution IDs, lifecycle state, backend subscriptions, bounded stdout/stderr activity tails, and read-only activity snapshots.
 - Broker-level stdout/stderr streaming events while retaining the pinned upstream validator/executor path.
 - Per-process stop support and Windows process-tree termination for managed helpers.
+- Deterministic permission policy evaluation with explicit allow / ask / deny decisions and matching-rule reasons.
+- SQLite-backed persistent permission rules plus memory-only session rules, with list, revoke, and reset backend APIs.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -33,4 +35,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Bootstrap execution remains local-only, accepts argv arrays rather than shell strings, exposes no per-request environment overrides, and admits only `git` before upstream validation.
 - Added a process-local Windows compatibility adapter for the pinned upstream package instead of weakening or replacing its validation path.
 - Live activity retains bounded output tails rather than an unbounded in-memory terminal transcript.
+- Permission persistence stores normalized authority metadata only; raw argv and environment-variable values are not written to the permission-rule database.
 
