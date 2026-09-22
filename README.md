@@ -9,7 +9,7 @@ ShellWarden is a local-first desktop control center for safely exposing shell ac
 
 ## Current status
 
-ShellWarden is in its desktop-foundation phase. The current application is intentionally **local-only**: it establishes the Windows Tauri shell, navigation, health/status surface, build verification, and repository version plumbing. MCP execution, permissions, tray lifecycle, and remote connectivity are added in later roadmap slices.
+ShellWarden is in its desktop-foundation phase. The Windows app now has a real tray-first lifecycle: closing the main window hides it to the tray, the tray can restore it, and **Exit ShellWarden** terminates the application and ShellWarden-managed child processes. The app remains intentionally local-only; MCP execution, permissions, and remote connectivity arrive in later roadmap slices.
 
 Current development version: **0.0.0-dev**
 
@@ -34,15 +34,18 @@ npm install
 npm run tauri:dev
 ```
 
+Closing the window keeps ShellWarden alive in the system tray. Use **Exit ShellWarden** from the tray to stop it completely.
+
 ### Verify
 
 ```powershell
 npm run check
 npm run build:web
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri:build
 ```
 
-The pull-request CI runs frontend checks on Linux plus a real Tauri release build and short launch smoke on Windows.
+The pull-request CI runs frontend checks plus Rust lifecycle tests, a real Tauri release build, and launch smoke on Windows. Manual tray verification is documented in [docs/verification/issue-3-windows-lifecycle.md](docs/verification/issue-3-windows-lifecycle.md).
 
 ## v0.1 goal
 
@@ -63,7 +66,7 @@ Ship a Windows-first application that we can dogfood daily:
 - **Execution core:** pinned [mcp-shell-server](https://github.com/tumf/mcp-shell-server) upstream dependency.
 - **Remote transport:** OpenAI Secure MCP Tunnel for our initial ChatGPT workflow; ShellWarden itself remains transport-agnostic.
 - **Security model:** positive allow/ask/deny policy, scoped grants, minimal child environments, upstream argument hardening, explicit warnings, and OS-level least privilege.
-- **Lifecycle:** window or tray only. Closing the window may minimize to tray; choosing Exit stops everything.
+- **Lifecycle:** window or tray only. Closing the window minimizes to tray; choosing Exit stops everything.
 
 ## Documentation
 
