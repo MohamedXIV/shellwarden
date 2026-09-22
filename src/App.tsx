@@ -31,19 +31,19 @@ function Placeholder({ section }: { section: Section }) {
               This foundation build exposes no shell access yet.
             </p>
           </div>
-          <div className="access-state" aria-label="Remote access status">
+          <section className="access-state" aria-label="Remote access status">
             <span className="status-dot offline" />
             <div>
               <strong>Remote access offline</strong>
               <span>Execution features arrive in Phase 2.</span>
             </div>
-          </div>
+          </section>
         </section>
 
         <section className="health-grid" aria-label="Development health">
           {health.map((item) => (
             <article className="health-card" key={item.label}>
-              <div className={"health-icon " + item.tone} />
+              <div className={`health-icon ${item.tone}`} />
               <div>
                 <span>{item.label}</span>
                 <strong>{item.value}</strong>
