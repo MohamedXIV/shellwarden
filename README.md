@@ -42,7 +42,7 @@ npm run build:web
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-The pull-request CI runs frontend checks on Linux and a Rust/Tauri cargo check on Windows.
+The pull-request CI runs frontend checks on Linux plus a real Tauri release build and short launch smoke on Windows.
 
 ## v0.1 goal
 
