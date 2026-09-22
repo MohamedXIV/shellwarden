@@ -111,7 +111,11 @@ User-granted rules such as:
 
 Persistent rules must be inspectable and revocable from the UI.
 
-A lightweight local database such as SQLite is appropriate once implementation reaches this stage; the issue implementing persistence owns the final choice.
+`SQLite` is the v0.1 persistent permission store. ShellWarden opens `permissions.sqlite3` under the platform app-data directory with a small schema-versioned table. Session rules never enter SQLite; they live only in memory and disappear when the app/session state is recreated.
+
+Persistent rules store normalized authority metadata only: effect, executable, operation key, environment-variable **names**, optional source constraint, and creation metadata. Raw argv and environment-variable values are deliberately not persisted in the permission table. Directory-scope semantics are added separately in the scoped-approvals slice.
+
+Policy evaluation is deterministic: matching deny rules take precedence over matching allow rules; more specific source/session constraints win within the same effect; unknown requests resolve to `ask`. Every non-ask decision returns the exact matching rule ID and a human-readable reason.
 
 ## Activity model
 
