@@ -446,6 +446,54 @@ mod tests {
     }
 
     #[test]
+    fn cancel_pending_by_source_only_revokes_matching_requester() {
+        let root = unique_root("cancel-source");
+        let approvals = ApprovalState::default();
+
+        let mut remote_input = request(&root, &["git", "status"]);
+        remote_input.source = "openai-secure-mcp-tunnel".to_string();
+        let remote = approvals
+            .request(remote_input, Some("exec-remote".to_string()), None)
+            .expect("remote approval");
+
+        let local = approvals
+            .request(
+                request(&root, &["git", "diff"]),
+                Some("exec-local".to_string()),
+                None,
+            )
+            .expect("local approval");
+
+        assert_eq!(
+            approvals.cancel_pending_by_source(
+                "openai-secure-mcp-tunnel",
+                "Remote access was paused."
+            ),
+            1
+        );
+
+        let snapshot = approvals.snapshot();
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|approval| approval.id == remote.id)
+                .expect("remote record")
+                .status,
+            ApprovalStatus::Cancelled
+        );
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|approval| approval.id == local.id)
+                .expect("local record")
+                .status,
+            ApprovalStatus::Pending
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn cancelled_and_expired_requests_cannot_be_approved() {
         let root = unique_root("terminal");
         let approvals = ApprovalState::default();
