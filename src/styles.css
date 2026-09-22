@@ -1478,7 +1478,10 @@ button {
 
 .segmented-control {
   display: flex;
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
+  padding: 0;
   border: 1px solid #292f35;
   border-radius: 7px;
 }
@@ -1528,20 +1531,21 @@ button {
   opacity: 0.45;
 }
 
-.danger-outline {
-  border-color: #4c3030 !important;
-  color: #cf8585 !important;
-  background: #161010 !important;
+.permission-reset-strip .danger-outline,
+.permission-card .danger-outline {
+  border-color: #4c3030;
+  color: #cf8585;
+  background: #161010;
 }
 
 .danger-outline.compact {
   padding: 7px 9px;
 }
 
-.danger-solid {
-  border-color: #754141 !important;
-  color: #f0b0b0 !important;
-  background: #542727 !important;
+.inline-confirm .danger-solid {
+  border-color: #754141;
+  color: #f0b0b0;
+  background: #542727;
 }
 
 .inline-confirm {
@@ -1827,4 +1831,17 @@ button {
   .audit-card-head time {
     align-self: flex-start;
   }
+}
+
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
