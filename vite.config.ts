@@ -14,9 +14,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      // Cargo continuously creates/replaces locked .exe/.pdb artifacts here on Windows.
-      // Vite does not need to watch Rust build output and doing so can raise EBUSY.
-      ignored: ["**/src-tauri/target/**"],
+      // Tauri/Cargo own the entire Rust side. They continuously create/replace locked
+      // build artifacts and generated schemas on Windows, which Vite must never watch.
+      ignored: ["**/src-tauri/**"],
     },
   },
 });
