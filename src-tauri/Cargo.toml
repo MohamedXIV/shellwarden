@@ -1,0 +1,18 @@
+[package]
+name = "shellwarden"
+version = "0.0.0-dev"
+description = "Human-controlled shell access for AI agents over MCP"
+authors = ["Mohamed F. Waziri"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/MohamedXIV/shellwarden"
+
+[lib]
+name = "shellwarden_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

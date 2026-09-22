@@ -7,6 +7,43 @@ ShellWarden is a local-first desktop control center for safely exposing shell ac
 > [!IMPORTANT]
 > ShellWarden is a trusted execution gateway, **not an OS sandbox**. An allowed executable still runs with the authority of the OS account running ShellWarden. v0.1 is designed to be used under a dedicated least-privilege Windows account.
 
+## Current status
+
+ShellWarden is in its desktop-foundation phase. The current application is intentionally **local-only**: it establishes the Windows Tauri shell, navigation, health/status surface, build verification, and repository version plumbing. MCP execution, permissions, tray lifecycle, and remote connectivity are added in later roadmap slices.
+
+Current development version: **0.0.0-dev**
+
+## Development
+
+### Prerequisites
+
+- Windows 10/11 for the target desktop workflow.
+- Node.js 22.13 or newer.
+- Rust stable toolchain with Cargo.
+- Tauri's Windows prerequisites, including Microsoft C++ Build Tools and WebView2 where not already present.
+
+### Install
+
+```powershell
+npm install
+```
+
+### Run the desktop app
+
+```powershell
+npm run tauri:dev
+```
+
+### Verify
+
+```powershell
+npm run check
+npm run build:web
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+The pull-request CI runs frontend checks on Linux plus a real Tauri release build and short launch smoke on Windows.
+
 ## v0.1 goal
 
 Ship a Windows-first application that we can dogfood daily:
@@ -37,12 +74,6 @@ Ship a Windows-first application that we can dogfood daily:
 - [Roadmap](docs/ROADMAP.md)
 - [Versioning and releases](docs/RELEASING.md)
 - [Changelog](CHANGELOG.md)
-
-## Status
-
-Current development version: **0.0.0-dev**
-
-The first runnable dogfood release is planned as **0.1.0-alpha.1**.
 
 ## License
 
