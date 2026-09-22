@@ -22,7 +22,7 @@ jobs:
       - run: npm run build:web
 
   tauri:
-    name: Tauri build and launch smoke (Windows)
+    name: Tauri lifecycle verify (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +32,7 @@ jobs:
       - run: npm install
       - run: rustup toolchain install stable --profile minimal
       - run: rustup default stable
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: npm run tauri:build
       - name: Launch smoke
         shell: pwsh
