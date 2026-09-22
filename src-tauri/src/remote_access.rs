@@ -1,4 +1,8 @@
-use crate::{process_supervisor::ProcessSupervisor, remote_mcp::McpServerState};
+use crate::{
+    approval_state::ApprovalState,
+    process_supervisor::ProcessSupervisor,
+    remote_mcp::McpServerState,
+};
 use serde::Serialize;
 use std::{
     fs,
@@ -80,6 +84,15 @@ impl RemoteAccessState {
         self.inner().generation
     }
 
+    pub(crate) fn accepts_remote_requests(&self) -> bool {
+        let inner = self.inner();
+        inner.config.is_some()
+            && matches!(
+                inner.phase,
+                RemoteAccessPhase::Starting | RemoteAccessPhase::Connected
+            )
+    }
+
     pub fn status(&self, app: &AppHandle) -> RemoteAccessStatus {
         let inner = self.inner();
         RemoteAccessStatus {
@@ -124,6 +137,10 @@ impl RemoteAccessState {
 
     pub fn pause(&self, app: &AppHandle) -> RemoteAccessStatus {
         app.state::<ProcessSupervisor>().stop(TUNNEL_PROCESS_ID);
+        app.state::<ApprovalState>().cancel_pending_by_source(
+            "openai-secure-mcp-tunnel",
+            "Remote access was paused before this request was approved.",
+        );
 
         let health_url_file = {
             let mut inner = self.inner();
