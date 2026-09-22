@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { APP_VERSION } from "./version";
 
 type Section = "Dashboard" | "Activity" | "Approvals" | "Permissions" | "Audit" | "Settings";
@@ -605,7 +605,7 @@ export function App() {
     };
   }, [executions, risks]);
 
-  let content;
+  let content: ReactNode;
   if (section === "Dashboard") {
     content = (
       <Dashboard
