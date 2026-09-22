@@ -252,6 +252,27 @@ impl ApprovalState {
         Ok(view)
     }
 
+    pub fn cancel_pending_by_source(&self, source: &str, reason: &str) -> usize {
+        let mut inner = self.inner();
+        let timestamp_ms = now_ms();
+        let mut changed = Vec::new();
+
+        for record in &mut inner.records {
+            if record.view.status == ApprovalStatus::Pending && record.view.source == source {
+                record.view.status = ApprovalStatus::Cancelled;
+                record.view.resolved_at_ms = Some(timestamp_ms);
+                record.view.decision_reason = Some(reason.to_string());
+                changed.push(record.view.clone());
+            }
+        }
+
+        let count = changed.len();
+        for approval in changed {
+            self.publish(&mut inner, approval);
+        }
+        count
+    }
+
     pub fn subscribe(&self) -> Receiver<ApprovalEvent> {
         let (sender, receiver) = mpsc::channel();
         self.inner().subscribers.push(sender);
