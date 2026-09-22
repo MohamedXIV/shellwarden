@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Scoped approvals for Once, Session, Exact Directory, Directory Tree, risk-gated Always, and Deny, including migration of earlier exact persistent rules.
 - Deterministic Low/Medium/High/Critical risk assessment with user-facing reasons and allowed approval scopes.
 - Live Control Center dashboard and Activity stream with execution state, requester, cwd, elapsed time, risk assessment, bounded output, pending-approval counts, and session-recent policy decisions.
+- Interactive pending-approval queue and Approvals UI with risk-limited scope choices, expiry/cancellation states, direct tray navigation, and Windows attention signaling.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -41,4 +42,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Path-scoped grants use canonical resolved directories and component-aware matching so traversal, symlink, junction, and reparse-point escapes do not inherit authority from a textual path prefix.
 - General-purpose shells/eval interpreters and destructive operations are classified Critical and cannot receive persistent allow scopes; external side effects cannot receive tree/global authority.
 - Approval-scope enforcement is computed inside ShellWarden; MCP/UI clients cannot assert that an Always grant is risk-approved.
+- Denying a single pending request records the decision without silently creating a persistent deny rule; expired or cancelled requests cannot later be approved.
 
