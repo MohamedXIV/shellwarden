@@ -3,6 +3,7 @@ use crate::{
     execution_activity::{ExecutionActivityState, ExecutionStatus, NewExecutionRequest},
     execution_core::ExecutionCoreState,
     permission_policy::{PolicyOutcome, PolicyRequestInput, PolicyState},
+    remote_access::RemoteAccessState,
 };
 use rmcp::{
     handler::server::wrapper::Parameters,
@@ -247,6 +248,13 @@ fn execute_remote(
     app: &AppHandle,
     params: ShellExecuteParams,
 ) -> Result<(String, Value), String> {
+    if !app
+        .state::<RemoteAccessState>()
+        .accepts_remote_requests()
+    {
+        return Err("Remote access is paused or unavailable.".to_string());
+    }
+
     let canonical_directory = Path::new(&params.directory)
         .canonicalize()
         .map_err(|error| format!("failed to canonicalize remote working directory: {error}"))?
@@ -297,6 +305,14 @@ fn execute_remote(
         PolicyOutcome::Ask => {
             wait_for_human_approval(app, input, &execution_id)?;
         }
+    }
+
+    if !app
+        .state::<RemoteAccessState>()
+        .accepts_remote_requests()
+    {
+        let _ = activity.transition(&execution_id, ExecutionStatus::Cancelled);
+        return Err("Remote access was paused before execution started.".to_string());
     }
 
     let response = app.state::<ExecutionCoreState>().execute_with_activity(
