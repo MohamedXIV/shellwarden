@@ -164,7 +164,13 @@ Approval events update the desktop UI, tray attention state, and linked executio
 
 Secure MCP Tunnel is the first remote transport, not the definition of ShellWarden.
 
-Transport-specific code should stay behind a small adapter so local/stdio or other MCP transports can be supported later without changing the policy model.
+ShellWarden hosts its own Streamable HTTP MCP endpoint on an ephemeral `127.0.0.1` port. The tunnel points at that loopback endpoint — never directly at `mcp-shell-server` — so every remote `shell_execute` call enters the same Policy -> Approval -> Activity -> execution-core path as local ShellWarden-managed work.
+
+The local MCP endpoint uses the official Rust MCP SDK and remains available while the desktop app is running. Remote access is a separate managed `tunnel-client` child process. Pause kills only that child, immediately removing remote ingress while leaving the local control center and loopback listener alive.
+
+The tunnel runtime key is supplied only through the managed child environment and is not written to ShellWarden SQLite/config files. `tunnel-client` publishes an ephemeral loopback health URL; ShellWarden treats `/readyz` HTTP 200 as Connected and distinguishes Starting/Error states from process liveness.
+
+Transport-specific code stays behind this adapter so local/stdio or other MCP transports can be supported later without changing the policy model.
 
 ## Shutdown contract
 
