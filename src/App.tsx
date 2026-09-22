@@ -110,6 +110,26 @@ type PolicyDecisionEvent = {
   reason: string;
 };
 
+type RemoteAccessPhase = "unconfigured" | "paused" | "starting" | "connected" | "error";
+
+type RemoteAccessStatus = {
+  phase: RemoteAccessPhase;
+  configured: boolean;
+  tunnelId: string | null;
+  mcpServerUrl: string | null;
+  healthUrl: string | null;
+  error: string | null;
+};
+
+const initialRemoteAccess: RemoteAccessStatus = {
+  phase: "unconfigured",
+  configured: false,
+  tunnelId: null,
+  mcpServerUrl: null,
+  healthUrl: null,
+  error: null,
+};
+
 const sections: Array<{ label: Section; glyph: string }> = [
   { label: "Dashboard", glyph: "◫" },
   { label: "Activity", glyph: "⌁" },
@@ -752,15 +772,141 @@ function ActivityView({
   );
 }
 
-function Placeholder() {
+function remotePhaseLabel(phase: RemoteAccessPhase) {
+  switch (phase) {
+    case "connected":
+      return "Connected";
+    case "starting":
+      return "Connecting";
+    case "paused":
+      return "Paused";
+    case "error":
+      return "Error";
+    default:
+      return "Not configured";
+  }
+}
+
+function SettingsView({
+  remote,
+  busy,
+  error,
+  onConnect,
+}: {
+  remote: RemoteAccessStatus;
+  busy: boolean;
+  error: string | null;
+  onConnect: (tunnelId: string, apiKey: string, binary: string) => Promise<void>;
+}) {
+  const [tunnelId, setTunnelId] = useState(remote.tunnelId ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [binary, setBinary] = useState("tunnel-client");
+
+  useEffect(() => {
+    if (remote.tunnelId) setTunnelId(remote.tunnelId);
+  }, [remote.tunnelId]);
+
   return (
-    <section className="panel section-placeholder">
-      <span className="section-kicker">SETTINGS</span>
-      <h1>Settings</h1>
-      <p>
-        Transport setup and application preferences remain intentionally small until remote
-        connectivity lands.
-      </p>
+    <section className="settings-page">
+      <div className="page-heading">
+        <div>
+          <span className="section-kicker">REMOTE TRANSPORT</span>
+          <h1>Settings</h1>
+          <p>Connect OpenAI Secure MCP Tunnel to ShellWarden's loopback-only MCP endpoint.</p>
+        </div>
+        <span className={"remote-phase phase-" + remote.phase}>{remotePhaseLabel(remote.phase)}</span>
+      </div>
+
+      {(error || remote.error) && (
+        <div className="panel inline-error large">
+          <strong>Remote access needs attention</strong>
+          <span>{error ?? remote.error}</span>
+        </div>
+      )}
+
+      <div className="settings-grid">
+        <section className="panel settings-card">
+          <span className="section-kicker">SECURE MCP TUNNEL</span>
+          <h2>Runtime connection</h2>
+          <p>
+            Use a restricted runtime key with Tunnels Read + Use. ShellWarden keeps the key in
+            memory and passes it only to the managed tunnel process.
+          </p>
+
+          <label>
+            <span>Tunnel ID</span>
+            <input
+              autoComplete="off"
+              onChange={(event) => setTunnelId(event.target.value)}
+              placeholder="tunnel_0123456789abcdef0123456789abcdef"
+              spellCheck={false}
+              value={tunnelId}
+            />
+          </label>
+
+          <label>
+            <span>Runtime API key</span>
+            <input
+              autoComplete="off"
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={remote.configured ? "Enter a new key to reconnect" : "sk-…"}
+              spellCheck={false}
+              type="password"
+              value={apiKey}
+            />
+          </label>
+
+          <label>
+            <span>tunnel-client binary</span>
+            <input
+              autoComplete="off"
+              onChange={(event) => setBinary(event.target.value)}
+              placeholder="tunnel-client"
+              spellCheck={false}
+              value={binary}
+            />
+          </label>
+
+          <button
+            className="settings-primary"
+            disabled={busy || tunnelId.trim().length === 0 || apiKey.trim().length === 0}
+            onClick={async () => {
+              await onConnect(tunnelId.trim(), apiKey, binary.trim());
+              setApiKey("");
+            }}
+            type="button"
+          >
+            {busy ? "Connecting…" : remote.configured ? "Reconnect tunnel" : "Connect tunnel"}
+          </button>
+        </section>
+
+        <section className="panel settings-card status-card">
+          <span className="section-kicker">LOCAL BOUNDARY</span>
+          <h2>ShellWarden MCP</h2>
+          <dl>
+            <div>
+              <dt>Listener</dt>
+              <dd>{remote.mcpServerUrl ?? "Starting…"}</dd>
+            </div>
+            <div>
+              <dt>Exposure</dt>
+              <dd>127.0.0.1 only</dd>
+            </div>
+            <div>
+              <dt>Tunnel</dt>
+              <dd>{remote.tunnelId ?? "Not configured"}</dd>
+            </div>
+            <div>
+              <dt>Health UI</dt>
+              <dd>{remote.healthUrl ? remote.healthUrl + "/ui" : "Available after tunnel startup"}</dd>
+            </div>
+          </dl>
+          <p className="settings-note">
+            Pause stops the managed tunnel process. The local MCP listener remains private on
+            loopback so local control continues without remote authority.
+          </p>
+        </section>
+      </div>
     </section>
   );
 }
@@ -778,6 +924,9 @@ export function App() {
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [managementError, setManagementError] = useState<string | null>(null);
   const [managementBusy, setManagementBusy] = useState<string | null>(null);
+  const [remoteAccess, setRemoteAccess] = useState<RemoteAccessStatus>(initialRemoteAccess);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [remoteBusy, setRemoteBusy] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -914,6 +1063,43 @@ export function App() {
 
   useEffect(() => {
     let disposed = false;
+    let stopRemote: UnlistenFn | undefined;
+
+    const refreshRemote = async () => {
+      try {
+        const status = await invoke<RemoteAccessStatus>("remote_access_status");
+        if (!disposed) {
+          setRemoteAccess(status);
+          setRemoteError(null);
+        }
+      } catch (error: unknown) {
+        if (!disposed) setRemoteError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    void refreshRemote();
+
+    listen<RemoteAccessStatus>("shellwarden://remote-access", (event) => {
+      if (!disposed) {
+        setRemoteAccess(event.payload);
+        setRemoteError(null);
+      }
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopRemote = stop;
+    });
+
+    const remoteTimer = window.setInterval(() => void refreshRemote(), 3000);
+
+    return () => {
+      disposed = true;
+      stopRemote?.();
+      window.clearInterval(remoteTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
     let stopAudit: UnlistenFn | undefined;
 
     void refreshManagement();
@@ -981,6 +1167,46 @@ export function App() {
       setManagementError(error instanceof Error ? error.message : String(error));
     } finally {
       setManagementBusy(null);
+    }
+  }
+
+  async function connectRemote(tunnelId: string, apiKey: string, binary: string) {
+    setRemoteBusy(true);
+    setRemoteError(null);
+    try {
+      const status = await invoke<RemoteAccessStatus>("remote_access_connect", {
+        tunnelId,
+        apiKey,
+        binary: binary || null,
+      });
+      setRemoteAccess(status);
+    } catch (error: unknown) {
+      setRemoteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRemoteBusy(false);
+    }
+  }
+
+  async function toggleRemoteAccess() {
+    if (!remoteAccess.configured) {
+      setSection("Settings");
+      return;
+    }
+
+    setRemoteBusy(true);
+    setRemoteError(null);
+    try {
+      const command =
+        remoteAccess.phase === "connected" || remoteAccess.phase === "starting"
+          ? "remote_access_pause"
+          : "remote_access_resume";
+      const status = await invoke<RemoteAccessStatus>(command);
+      setRemoteAccess(status);
+    } catch (error: unknown) {
+      setRemoteError(error instanceof Error ? error.message : String(error));
+      setSection("Settings");
+    } finally {
+      setRemoteBusy(false);
     }
   }
 
@@ -1088,7 +1314,14 @@ export function App() {
   } else if (section === "Audit") {
     content = <AuditView entries={auditEntries} error={managementError} />;
   } else {
-    content = <Placeholder />;
+    content = (
+      <SettingsView
+        busy={remoteBusy}
+        error={remoteError}
+        onConnect={connectRemote}
+        remote={remoteAccess}
+      />
+    );
   }
 
   return (
@@ -1123,10 +1356,10 @@ export function App() {
 
         <div className="sidebar-footer">
           <div className="local-only">
-            <span className="status-dot local" />
+            <span className={"status-dot remote-" + remoteAccess.phase} />
             <div>
               <strong>Local control active</strong>
-              <span>Remote transport offline</span>
+              <span>Remote: {remotePhaseLabel(remoteAccess.phase).toLowerCase()}</span>
             </div>
           </div>
           <span className="version">v{APP_VERSION}</span>
@@ -1140,17 +1373,24 @@ export function App() {
             <strong>{section}</strong>
           </div>
           <div className="topbar-actions">
-            <span className="connection-chip">
-              <span className="status-dot offline" />
-              Remote offline
+            <span className={"connection-chip remote-" + remoteAccess.phase}>
+              <span className={"status-dot remote-" + remoteAccess.phase} />
+              Remote {remotePhaseLabel(remoteAccess.phase).toLowerCase()}
             </span>
             <button
               className="pause-button"
-              disabled
+              disabled={remoteBusy}
+              onClick={toggleRemoteAccess}
               type="button"
-              title="Remote access is not configured yet"
+              title={remoteAccess.error ?? undefined}
             >
-              Pause Remote Access
+              {remoteBusy
+                ? "Updating…"
+                : !remoteAccess.configured
+                  ? "Configure Remote"
+                  : remoteAccess.phase === "connected" || remoteAccess.phase === "starting"
+                    ? "Pause Remote Access"
+                    : "Resume Remote Access"}
             </button>
           </div>
         </header>
