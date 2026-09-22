@@ -26,6 +26,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Live Control Center dashboard and Activity stream with execution state, requester, cwd, elapsed time, risk assessment, bounded output, pending-approval counts, and session-recent policy decisions.
 - Interactive pending-approval queue and Approvals UI with risk-limited scope choices, expiry/cancellation states, direct tray navigation, and Windows attention signaling.
 - Searchable Permissions management with revoke/reset controls and durable SQLite Audit history for policy decisions and terminal executions.
+- Loopback Streamable HTTP MCP ingress plus managed OpenAI Secure MCP Tunnel configuration, readiness, Pause/Resume, tray status, and shutdown supervision.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -45,4 +46,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Approval-scope enforcement is computed inside ShellWarden; MCP/UI clients cannot assert that an Always grant is risk-approved.
 - Denying a single pending request records the decision without silently creating a persistent deny rule; expired or cancelled requests cannot later be approved.
 - Durable audit storage excludes raw argv, stdout/stderr, and environment values; command summaries persist only the executable plus a redacted argument count.
+- Remote tunnel credentials remain memory-only and the tunnel targets ShellWarden's loopback policy broker rather than the execution core directly.
 
