@@ -1610,4 +1610,28 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn recent_decisions_are_bounded_session_memory_with_explainable_metadata() {
+        let (root, repo, _, _) = setup("recent-decisions");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        for _ in 0..25 {
+            let decision = state
+                .decide(request(&repo, Some("session-a"), "status"))
+                .expect("decision");
+            assert_eq!(decision.outcome, PolicyOutcome::Ask);
+        }
+
+        let recent = state.recent_decisions().expect("recent decisions");
+        assert_eq!(recent.len(), 20);
+        assert_eq!(recent[0].executable, "git");
+        assert_eq!(recent[0].operation_class, "read");
+        assert_eq!(recent[0].outcome, PolicyOutcome::Ask);
+        assert!(recent[0].reason.contains("explicit user approval"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
 }
