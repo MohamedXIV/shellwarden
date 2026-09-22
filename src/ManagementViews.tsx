@@ -150,7 +150,8 @@ export function PermissionsView({
           type="search"
           value={query}
         />
-        <div className="segmented-control" aria-label="Permission persistence filter" role="group">
+        <fieldset className="segmented-control">
+          <legend className="visually-hidden">Permission persistence filter</legend>
           {(["all", "persistent", "ephemeral"] as const).map((value) => (
             <button
               className={filter === value ? "active" : ""}
@@ -161,7 +162,7 @@ export function PermissionsView({
               {value}
             </button>
           ))}
-        </div>
+        </fieldset>
       </section>
 
       <section className="permission-reset-strip">
@@ -332,7 +333,8 @@ export function AuditView({
           type="search"
           value={query}
         />
-        <div className="segmented-control" aria-label="Audit event filter" role="group">
+        <fieldset className="segmented-control">
+          <legend className="visually-hidden">Audit event filter</legend>
           {(["all", "decision", "execution"] as const).map((value) => (
             <button
               className={kind === value ? "active" : ""}
@@ -343,7 +345,7 @@ export function AuditView({
               {value}
             </button>
           ))}
-        </div>
+        </fieldset>
       </section>
 
       {filtered.length === 0 ? (
