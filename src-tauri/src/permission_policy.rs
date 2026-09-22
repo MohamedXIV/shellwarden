@@ -1,3 +1,4 @@
+use crate::risk_policy::assess_command;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -961,6 +962,25 @@ impl PolicyState {
             .as_mut()
             .ok_or_else(|| "policy engine is not initialized".to_string())?
             .decide(&request)
+    }
+
+    pub fn grant_scope_checked(
+        &self,
+        scope: ApprovalScope,
+        input: PolicyRequestInput,
+    ) -> Result<PolicyRuleView, String> {
+        let risk = assess_command(&input.command, &input.operation_class)?;
+        if !risk.allows_scope(scope) {
+            return Err(format!(
+                "risk policy {:?} does not permit {} scope: {}",
+                risk.class,
+                scope.as_str(),
+                risk.reason
+            ));
+        }
+
+        let risk_policy_allows_always = risk.allows_scope(ApprovalScope::Always);
+        self.grant_scope(scope, input, risk_policy_allows_always)
     }
 
     pub fn grant_scope(
