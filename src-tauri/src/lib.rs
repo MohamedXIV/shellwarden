@@ -5,6 +5,8 @@ mod execution_core;
 mod lifecycle;
 mod permission_policy;
 mod process_supervisor;
+mod remote_access;
+mod remote_mcp;
 mod risk_policy;
 
 use approval_state::{
@@ -21,6 +23,8 @@ use permission_policy::{
     PolicyRuleView, PolicyState,
 };
 use process_supervisor::ProcessSupervisor;
+use remote_access::{RemoteAccessPhase, RemoteAccessState, RemoteAccessStatus};
+use remote_mcp::{McpServerState, McpServerStatus};
 use risk_policy::{assess, RiskAssessment, RiskRequestInput};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -34,6 +38,7 @@ const MENU_OPEN: &str = "open";
 const MENU_STATUS: &str = "status";
 const MENU_ACTIVITY: &str = "activity";
 const MENU_APPROVALS: &str = "approvals";
+const MENU_REMOTE: &str = "remote";
 const MENU_EXIT: &str = "exit";
 
 #[tauri::command]
@@ -156,6 +161,46 @@ fn audit_entries(
     state.list(limit.unwrap_or(500))
 }
 
+#[tauri::command]
+fn mcp_server_status(state: tauri::State<'_, McpServerState>) -> McpServerStatus {
+    state.status()
+}
+
+#[tauri::command]
+fn remote_access_status(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteAccessState>,
+) -> RemoteAccessStatus {
+    state.status(&app)
+}
+
+#[tauri::command]
+fn remote_access_connect(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteAccessState>,
+    tunnel_id: String,
+    api_key: String,
+    binary: Option<String>,
+) -> Result<RemoteAccessStatus, String> {
+    state.configure_and_start(&app, tunnel_id, api_key, binary)
+}
+
+#[tauri::command]
+fn remote_access_pause(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteAccessState>,
+) -> RemoteAccessStatus {
+    state.pause(&app)
+}
+
+#[tauri::command]
+fn remote_access_resume(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteAccessState>,
+) -> Result<RemoteAccessStatus, String> {
+    state.resume(&app)
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
@@ -183,10 +228,18 @@ fn build_tray_menu(
     pending: usize,
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItem::with_id(app, MENU_OPEN, "Open ShellWarden", true, None::<&str>)?;
+    let remote = app.state::<RemoteAccessState>().status(app);
+    let remote_label = match remote.phase {
+        RemoteAccessPhase::Unconfigured => "Remote access: not configured".to_string(),
+        RemoteAccessPhase::Paused => "Remote access: paused".to_string(),
+        RemoteAccessPhase::Starting => "Remote access: connecting".to_string(),
+        RemoteAccessPhase::Connected => "Remote access: connected".to_string(),
+        RemoteAccessPhase::Error => "Remote access: error".to_string(),
+    };
     let status = MenuItem::with_id(
         app,
         MENU_STATUS,
-        "Remote access: not configured",
+        remote_label,
         false,
         None::<&str>,
     )?;
@@ -210,6 +263,16 @@ fn build_tray_menu(
         pending > 0,
         None::<&str>,
     )?;
+    let remote_toggle = MenuItem::with_id(
+        app,
+        MENU_REMOTE,
+        match remote.phase {
+            RemoteAccessPhase::Connected | RemoteAccessPhase::Starting => "Pause Remote Access",
+            _ => "Resume Remote Access",
+        },
+        remote.configured,
+        None::<&str>,
+    )?;
     let separator_before_exit = PredefinedMenuItem::separator(app)?;
     let exit = MenuItem::with_id(app, MENU_EXIT, "Exit ShellWarden", true, None::<&str>)?;
 
@@ -220,6 +283,7 @@ fn build_tray_menu(
             &status,
             &activity,
             &approvals,
+            &remote_toggle,
             &separator_before_exit,
             &exit,
         ],
@@ -256,6 +320,18 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
             MENU_APPROVALS => {
                 show_main_window(app);
                 let _ = app.emit("shellwarden://open-approvals", ());
+            }
+            MENU_REMOTE => {
+                let remote = app.state::<RemoteAccessState>();
+                match remote.status(app).phase {
+                    RemoteAccessPhase::Connected | RemoteAccessPhase::Starting => {
+                        remote.pause(app);
+                    }
+                    _ => {
+                        let _ = remote.resume(app);
+                    }
+                }
+                let _ = update_tray_attention(app);
             }
             MENU_EXIT => {
                 app.state::<LifecycleState>().begin_exit();
@@ -302,6 +378,8 @@ pub fn run() {
         .manage(PolicyState::default())
         .manage(ApprovalState::default())
         .manage(AuditState::default())
+        .manage(McpServerState::default())
+        .manage(RemoteAccessState::default())
         .invoke_handler(tauri::generate_handler![
             execution_core_status,
             execution_activity_snapshot,
@@ -319,7 +397,12 @@ pub fn run() {
             policy_reset_all_sessions,
             policy_reset_persistent,
             policy_reset_directory_scoped,
-            audit_entries
+            audit_entries,
+            mcp_server_status,
+            remote_access_status,
+            remote_access_connect,
+            remote_access_pause,
+            remote_access_resume
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -333,6 +416,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
 
             app.state::<ExecutionCoreState>().start(&repository_root());
+            app.state::<McpServerState>().start(app.handle().clone());
 
             let policy_events = app
                 .state::<PolicyState>()
@@ -413,6 +497,12 @@ pub fn run() {
                 }
             });
 
+            let remote_app = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = update_tray_attention(&remote_app);
+            });
+
             install_tray(app)?;
             Ok(())
         })
@@ -440,6 +530,10 @@ pub fn run() {
                 .state::<ExecutionActivityState>()
                 .cancel_all_non_terminal();
             let _ = app_handle.state::<PolicyState>().reset_all_sessions();
+            app_handle
+                .state::<RemoteAccessState>()
+                .stop_for_exit(app_handle);
+            app_handle.state::<McpServerState>().stop();
             app_handle.state::<ExecutionCoreState>().stop();
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
         }
