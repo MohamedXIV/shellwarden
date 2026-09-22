@@ -191,9 +191,11 @@ impl BrokerProcess {
         }
     }
 
-    fn execute_bootstrap_probe<F>(
+    fn execute_command<F>(
         &mut self,
+        command: &[String],
         directory: &Path,
+        timeout_seconds: Option<u64>,
         request_id: &str,
         on_event: F,
     ) -> Result<Value, String>
@@ -204,10 +206,28 @@ impl BrokerProcess {
             json!({
                 "id": request_id,
                 "type": "execute",
-                "command": ["git", "--version"],
+                "command": command,
                 "directory": directory,
-                "timeout": 15
+                "timeout": timeout_seconds
             }),
+            on_event,
+        )
+    }
+
+    fn execute_bootstrap_probe<F>(
+        &mut self,
+        directory: &Path,
+        request_id: &str,
+        on_event: F,
+    ) -> Result<Value, String>
+    where
+        F: FnMut(&Value),
+    {
+        self.execute_command(
+            &["git".to_string(), "--version".to_string()],
+            directory,
+            Some(15),
+            request_id,
             on_event,
         )
     }
@@ -290,6 +310,39 @@ impl ExecutionCoreState {
                 .clone()
                 .unwrap_or_else(|| "execution core unavailable".to_string()),
         )
+    }
+
+    pub fn execute_with_activity(
+        &self,
+        activity: &ExecutionActivityState,
+        execution_id: &str,
+        command: &[String],
+        directory: &str,
+        timeout_seconds: Option<u64>,
+    ) -> Result<Value, String> {
+        let canonical_directory = Path::new(directory)
+            .canonicalize()
+            .map_err(|error| format!("failed to canonicalize execution directory: {error}"))?;
+
+        let result = {
+            let mut inner = self.inner();
+            match inner.broker.as_mut() {
+                Some(broker) => broker.execute_command(
+                    command,
+                    &canonical_directory,
+                    timeout_seconds,
+                    execution_id,
+                    |event| apply_broker_event(activity, execution_id, event),
+                ),
+                None => Err("execution broker is not running".to_string()),
+            }
+        };
+
+        if result.is_err() {
+            let _ = activity.transition(execution_id, ExecutionStatus::Failed);
+        }
+
+        result
     }
 
     pub fn execute_bootstrap_probe_with_activity(
