@@ -111,7 +111,9 @@ User-granted rules such as:
 
 Persistent rules must be inspectable and revocable from the UI.
 
-A lightweight local database such as SQLite is appropriate once implementation reaches this stage; the issue implementing persistence owns the final choice.
+The v0.1 policy foundation uses a local SQLite database under the ShellWarden application-data directory. Persistent exact-request rules store a SHA-256 fingerprint of the normalized request plus non-secret metadata (source, executable, operation class, canonical directory, environment-key count, effect, timestamps). Raw argv and environment values are intentionally not persisted.
+
+Until scoped directory grants land, persistent rules are exact-request matches: the source, argv, operation class, canonical working directory, and environment key names must produce the same fingerprint. Session grants are memory-only and additionally require the active session identifier. Deny rules are evaluated before allow rules. An unmatched request resolves to `ask`.
 
 ## Activity model
 

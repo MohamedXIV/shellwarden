@@ -1,11 +1,15 @@
 mod execution_activity;
 mod execution_core;
 mod lifecycle;
+mod permission_policy;
 mod process_supervisor;
 
 use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
+use permission_policy::{
+    PolicyDecision, PolicyEffect, PolicyRequestInput, PolicyRuleView, PolicyState,
+};
 use process_supervisor::ProcessSupervisor;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -30,6 +34,63 @@ fn execution_activity_snapshot(
     state: tauri::State<'_, ExecutionActivityState>,
 ) -> Vec<ExecutionSnapshot> {
     state.snapshot()
+}
+
+#[tauri::command]
+fn policy_decide(
+    state: tauri::State<'_, PolicyState>,
+    input: PolicyRequestInput,
+) -> Result<PolicyDecision, String> {
+    state.decide(input)
+}
+
+#[tauri::command]
+fn policy_grant_session(
+    state: tauri::State<'_, PolicyState>,
+    effect: PolicyEffect,
+    input: PolicyRequestInput,
+) -> Result<PolicyRuleView, String> {
+    state.grant_session(effect, input)
+}
+
+#[tauri::command]
+fn policy_grant_persistent(
+    state: tauri::State<'_, PolicyState>,
+    effect: PolicyEffect,
+    input: PolicyRequestInput,
+) -> Result<PolicyRuleView, String> {
+    state.grant_persistent(effect, input)
+}
+
+#[tauri::command]
+fn policy_rules(state: tauri::State<'_, PolicyState>) -> Result<Vec<PolicyRuleView>, String> {
+    state.list()
+}
+
+#[tauri::command]
+fn policy_revoke(
+    state: tauri::State<'_, PolicyState>,
+    rule_id: String,
+) -> Result<bool, String> {
+    state.revoke(&rule_id)
+}
+
+#[tauri::command]
+fn policy_reset_session(
+    state: tauri::State<'_, PolicyState>,
+    session_id: String,
+) -> Result<usize, String> {
+    state.reset_session(&session_id)
+}
+
+#[tauri::command]
+fn policy_reset_all_sessions(state: tauri::State<'_, PolicyState>) -> Result<usize, String> {
+    state.reset_all_sessions()
+}
+
+#[tauri::command]
+fn policy_reset_persistent(state: tauri::State<'_, PolicyState>) -> Result<usize, String> {
+    state.reset_persistent()
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -91,11 +152,26 @@ pub fn run() {
         .manage(ProcessSupervisor::default())
         .manage(ExecutionActivityState::default())
         .manage(ExecutionCoreState::default())
+        .manage(PolicyState::default())
         .invoke_handler(tauri::generate_handler![
             execution_core_status,
-            execution_activity_snapshot
+            execution_activity_snapshot,
+            policy_decide,
+            policy_grant_session,
+            policy_grant_persistent,
+            policy_rules,
+            policy_revoke,
+            policy_reset_session,
+            policy_reset_all_sessions,
+            policy_reset_persistent
         ])
         .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let policy_database = app_data_dir.join("permissions.sqlite3");
+            app.state::<PolicyState>()
+                .initialize(&policy_database)
+                .map_err(std::io::Error::other)?;
+
             app.state::<ExecutionCoreState>().start(&repository_root());
             install_tray(app)?;
             Ok(())
@@ -123,6 +199,7 @@ pub fn run() {
             let _ = app_handle
                 .state::<ExecutionActivityState>()
                 .cancel_all_non_terminal();
+            let _ = app_handle.state::<PolicyState>().reset_all_sessions();
             app_handle.state::<ExecutionCoreState>().stop();
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
         }
