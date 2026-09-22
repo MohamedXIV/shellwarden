@@ -67,6 +67,7 @@ pub struct NewExecutionRequest {
     pub source: String,
     pub session_id: Option<String>,
     pub command: Vec<String>,
+    pub operation_class: String,
     pub directory: String,
     pub timeout_seconds: Option<u64>,
     pub environment_keys: Vec<String>,
@@ -79,6 +80,7 @@ pub struct ExecutionRequest {
     pub source: String,
     pub session_id: Option<String>,
     pub command: Vec<String>,
+    pub operation_class: String,
     pub directory: String,
     pub timeout_seconds: Option<u64>,
     pub environment_keys: Vec<String>,
@@ -93,6 +95,7 @@ pub struct ExecutionSnapshot {
     pub stderr_tail: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
 
@@ -121,6 +124,7 @@ struct ExecutionRecord {
     stderr_tail: String,
     stdout_truncated: bool,
     stderr_truncated: bool,
+    created_at_ms: u64,
     updated_at_ms: u64,
 }
 
@@ -156,6 +160,7 @@ impl ExecutionActivityState {
             source: request.source,
             session_id: request.session_id,
             command: request.command,
+            operation_class: request.operation_class,
             directory: request.directory,
             timeout_seconds: request.timeout_seconds,
             environment_keys: request.environment_keys,
@@ -169,6 +174,7 @@ impl ExecutionActivityState {
             stderr_tail: String::new(),
             stdout_truncated: false,
             stderr_truncated: false,
+            created_at_ms: timestamp_ms,
             updated_at_ms: timestamp_ms,
         };
 
@@ -264,6 +270,7 @@ impl ExecutionActivityState {
                 stderr_tail: record.stderr_tail.clone(),
                 stdout_truncated: record.stdout_truncated,
                 stderr_truncated: record.stderr_truncated,
+                created_at_ms: record.created_at_ms,
                 updated_at_ms: record.updated_at_ms,
             })
             .collect()
@@ -364,6 +371,7 @@ mod tests {
             source: "test".to_string(),
             session_id: Some("session-1".to_string()),
             command: vec![command.to_string()],
+            operation_class: "read".to_string(),
             directory: ".".to_string(),
             timeout_seconds: Some(30),
             environment_keys: Vec::new(),
