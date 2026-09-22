@@ -1,6 +1,8 @@
+mod execution_core;
 mod lifecycle;
 mod process_supervisor;
 
+use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use process_supervisor::ProcessSupervisor;
 use tauri::{
@@ -15,6 +17,11 @@ const MENU_OPEN: &str = "open";
 const MENU_STATUS: &str = "status";
 const MENU_ACTIVITY: &str = "activity";
 const MENU_EXIT: &str = "exit";
+
+#[tauri::command]
+fn execution_core_status(state: tauri::State<'_, ExecutionCoreState>) -> ExecutionCoreStatus {
+    state.status()
+}
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
@@ -41,15 +48,10 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let separator_before_exit = PredefinedMenuItem::separator(app)?;
+    let exit = MenuItem::with_id(app, MENU_EXIT, "Exit ShellWarden", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open, &status, &activity, &separator_before_exit, &MenuItem::with_id(
-            app,
-            MENU_EXIT,
-            "Exit ShellWarden",
-            true,
-            None::<&str>,
-        )?],
+        &[&open, &status, &activity, &separator_before_exit, &exit],
     )?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -78,7 +80,10 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(LifecycleState::default())
         .manage(ProcessSupervisor::default())
+        .manage(ExecutionCoreState::default())
+        .invoke_handler(tauri::generate_handler![execution_core_status])
         .setup(|app| {
+            app.state::<ExecutionCoreState>().start(&repository_root());
             install_tray(app)?;
             Ok(())
         })
@@ -102,6 +107,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let RunEvent::ExitRequested { .. } = event {
             app_handle.state::<LifecycleState>().begin_exit();
+            app_handle.state::<ExecutionCoreState>().stop();
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
         }
     });

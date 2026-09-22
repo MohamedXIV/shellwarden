@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import { APP_VERSION } from "./version";
 
 type Section = "Dashboard" | "Activity" | "Approvals" | "Permissions" | "Audit" | "Settings";
+
+type ExecutionCoreStatus = {
+  running: boolean;
+  expectedVersion: string;
+  detectedVersion: string | null;
+  error: string | null;
+};
 
 const sections: Array<{ label: Section; glyph: string }> = [
   { label: "Dashboard", glyph: "◫" },
@@ -12,14 +20,32 @@ const sections: Array<{ label: Section; glyph: string }> = [
   { label: "Settings", glyph: "⚙" },
 ];
 
-const health = [
-  { label: "Desktop shell", value: "Ready", tone: "good" },
-  { label: "Execution broker", value: "Not connected", tone: "idle" },
-  { label: "Remote access", value: "Not configured", tone: "idle" },
-] as const;
-
-function Placeholder({ section }: { section: Section }) {
+function Placeholder({
+  section,
+  executionCore,
+}: {
+  section: Section;
+  executionCore: ExecutionCoreStatus;
+}) {
   if (section === "Dashboard") {
+    const health = [
+      { label: "Desktop shell", value: "Ready", tone: "good", detail: "Tauri desktop runtime" },
+      {
+        label: "Execution core",
+        value: executionCore.running
+          ? `Ready · v${executionCore.detectedVersion}`
+          : "Unavailable",
+        tone: executionCore.running ? "good" : "idle",
+        detail: executionCore.error ?? `Pinned mcp-shell-server v${executionCore.expectedVersion}`,
+      },
+      {
+        label: "Remote access",
+        value: "Not configured",
+        tone: "idle",
+        detail: "No MCP transport is exposed yet",
+      },
+    ] as const;
+
     return (
       <>
         <section className="hero-panel">
@@ -27,22 +53,22 @@ function Placeholder({ section }: { section: Section }) {
             <p className="eyebrow">LOCAL CONTROL CENTER</p>
             <h1>Your shell stays yours.</h1>
             <p className="hero-copy">
-              ShellWarden will place scoped human approval between AI agents and local execution.
-              This foundation build exposes no shell access yet.
+              ShellWarden now supervises a pinned local execution core behind its broker boundary.
+              No remote MCP client can invoke it yet.
             </p>
           </div>
           <section className="access-state" aria-label="Remote access status">
             <span className="status-dot offline" />
             <div>
               <strong>Remote access offline</strong>
-              <span>Execution features arrive in Phase 2.</span>
+              <span>The execution core remains local-only until the remote transport phase.</span>
             </div>
           </section>
         </section>
 
         <section className="health-grid" aria-label="Development health">
           {health.map((item) => (
-            <article className="health-card" key={item.label}>
+            <article className="health-card" key={item.label} title={item.detail}>
               <div className={`health-icon ${item.tone}`} />
               <div>
                 <span>{item.label}</span>
@@ -68,11 +94,13 @@ function Placeholder({ section }: { section: Section }) {
           </article>
 
           <article className="panel next-step">
-            <span className="section-kicker">FOUNDATION STATUS</span>
-            <h2>Desktop shell online</h2>
+            <span className="section-kicker">EXECUTION CORE</span>
+            <h2>{executionCore.running ? "Pinned core supervised" : "Core needs attention"}</h2>
             <p>
-              Navigation, application version, health state, and the Windows desktop foundation are
-              now in place.
+              {executionCore.running
+                ? "mcp-shell-server is running behind ShellWarden's bootstrap broker. Only the internal git probe is admitted in this slice."
+                : executionCore.error ??
+                  "Install the pinned Python execution dependency to enable the local core."}
             </p>
             <div className="milestone-row">
               <span>Current build</span>
@@ -89,21 +117,54 @@ function Placeholder({ section }: { section: Section }) {
       <span className="section-kicker">{section.toUpperCase()}</span>
       <h1>{section}</h1>
       <p>
-        This surface is intentionally reserved for its roadmap slice. The foundation only
-        establishes the application shell and navigation contract.
+        This surface is intentionally reserved for its roadmap slice. The current build keeps the
+        execution core local-only and exposes status, not arbitrary execution, to the frontend.
       </p>
     </section>
   );
 }
 
+const initialCoreStatus: ExecutionCoreStatus = {
+  running: false,
+  expectedVersion: "1.1.12",
+  detectedVersion: null,
+  error: "Checking execution core…",
+};
+
 export function App() {
   const [section, setSection] = useState<Section>("Dashboard");
+  const [executionCore, setExecutionCore] = useState<ExecutionCoreStatus>(initialCoreStatus);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    invoke<ExecutionCoreStatus>("execution_core_status")
+      .then((status) => {
+        if (!cancelled) {
+          setExecutionCore(status);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setExecutionCore({
+            ...initialCoreStatus,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true">SW</div>
+          <div className="brand-mark" aria-hidden="true">
+            SW
+          </div>
           <div>
             <strong>ShellWarden</strong>
             <span>Control Center</span>
@@ -118,7 +179,9 @@ export function App() {
               onClick={() => setSection(item.label)}
               type="button"
             >
-              <span className="nav-glyph" aria-hidden="true">{item.glyph}</span>
+              <span className="nav-glyph" aria-hidden="true">
+                {item.glyph}
+              </span>
               {item.label}
               {item.label === "Approvals" && <span className="nav-count">0</span>}
             </button>
@@ -144,7 +207,7 @@ export function App() {
             <strong>{section}</strong>
           </div>
           <div className="topbar-actions">
-            <span className="phase-chip">Foundation</span>
+            <span className="phase-chip">Execution core</span>
             <button
               className="pause-button"
               disabled
@@ -157,7 +220,7 @@ export function App() {
         </header>
 
         <div className="content">
-          <Placeholder section={section} />
+          <Placeholder section={section} executionCore={executionCore} />
         </div>
       </main>
     </div>

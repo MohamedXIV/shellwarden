@@ -9,7 +9,7 @@ ShellWarden is a local-first desktop control center for safely exposing shell ac
 
 ## Current status
 
-ShellWarden is in its desktop-foundation phase. The Windows app now has a real tray-first lifecycle: closing the main window hides it to the tray, the tray can restore it, and **Exit ShellWarden** terminates the application and ShellWarden-managed child processes. The app remains intentionally local-only; MCP execution, permissions, and remote connectivity arrive in later roadmap slices.
+The Windows app has a tray-first lifecycle and now supervises a pinned `mcp-shell-server 1.1.12` execution core behind ShellWarden's own broker boundary. The core is still **local-only**: no remote MCP client and no frontend action can request arbitrary execution yet.
 
 Current development version: **0.0.0-dev**
 
@@ -20,12 +20,14 @@ Current development version: **0.0.0-dev**
 - Windows 10/11 for the target desktop workflow.
 - Node.js 22.13 or newer.
 - Rust stable toolchain with Cargo.
+- Python 3.11 or newer for the execution core.
 - Tauri's Windows prerequisites, including Microsoft C++ Build Tools and WebView2 where not already present.
 
 ### Install
 
 ```powershell
 npm install
+python -m pip install -r execution/requirements.txt
 ```
 
 ### Run the desktop app
@@ -40,12 +42,13 @@ Closing the window keeps ShellWarden alive in the system tray. Use **Exit ShellW
 
 ```powershell
 npm run check
-npm run build:web
+python execution/test_broker.py
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml pinned_upstream_executes_harmless_git_probe -- --ignored
 npm run tauri:build
 ```
 
-The pull-request CI runs frontend checks plus Rust lifecycle tests, a real Tauri release build, and launch smoke on Windows. Manual tray verification is documented in [docs/verification/issue-3-windows-lifecycle.md](docs/verification/issue-3-windows-lifecycle.md).
+See [Execution Core](docs/EXECUTION_CORE.md) for the upstream pin and broker boundary. Manual tray verification is documented in [docs/verification/issue-3-windows-lifecycle.md](docs/verification/issue-3-windows-lifecycle.md).
 
 ## v0.1 goal
 
@@ -73,10 +76,12 @@ Ship a Windows-first application that we can dogfood daily:
 - [Product](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security model](docs/SECURITY.md)
+- [Execution core](docs/EXECUTION_CORE.md)
 - [UX](docs/UX.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Versioning and releases](docs/RELEASING.md)
 - [Changelog](CHANGELOG.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## License
 
