@@ -275,6 +275,11 @@ impl RemoteAccessState {
             inner.error = Some(error);
         }
 
+        app.state::<ApprovalState>().cancel_pending_by_source(
+            "openai-secure-mcp-tunnel",
+            "Remote transport became unavailable before this request was approved.",
+        );
+
         let status = self.status(app);
         let _ = app.emit("shellwarden://remote-access", &status);
     }
@@ -295,6 +300,13 @@ impl RemoteAccessState {
             inner.phase = phase;
             inner.health_url = health_url;
             inner.error = error;
+        }
+
+        if phase == RemoteAccessPhase::Error {
+            app.state::<ApprovalState>().cancel_pending_by_source(
+                "openai-secure-mcp-tunnel",
+                "Remote transport disconnected before this request was approved.",
+            );
         }
 
         let status = self.status(app);
