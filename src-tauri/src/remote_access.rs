@@ -139,12 +139,6 @@ impl RemoteAccessState {
     }
 
     pub fn pause(&self, app: &AppHandle) -> RemoteAccessStatus {
-        app.state::<ProcessSupervisor>().stop(TUNNEL_PROCESS_ID);
-        app.state::<ApprovalState>().cancel_pending_by_source(
-            "openai-secure-mcp-tunnel",
-            "Remote access was paused before this request was approved.",
-        );
-
         let health_url_file = {
             let mut inner = self.inner();
             inner.generation = inner.generation.wrapping_add(1);
@@ -157,6 +151,13 @@ impl RemoteAccessState {
             inner.error = None;
             inner.health_url_file.take()
         };
+
+        app.state::<ProcessSupervisor>().stop(TUNNEL_PROCESS_ID);
+        app.state::<ApprovalState>().cancel_pending_by_source(
+            "openai-secure-mcp-tunnel",
+            "Remote access was paused before this request was approved.",
+        );
+
         if let Some(path) = health_url_file {
             let _ = fs::remove_file(path);
         }
