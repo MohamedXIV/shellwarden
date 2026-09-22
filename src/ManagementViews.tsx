@@ -150,7 +150,7 @@ export function PermissionsView({
           type="search"
           value={query}
         />
-        <div className="segmented-control" aria-label="Permission persistence filter">
+        <div className="segmented-control" aria-label="Permission persistence filter" role="group">
           {(["all", "persistent", "ephemeral"] as const).map((value) => (
             <button
               className={filter === value ? "active" : ""}
@@ -332,7 +332,7 @@ export function AuditView({
           type="search"
           value={query}
         />
-        <div className="segmented-control" aria-label="Audit event filter">
+        <div className="segmented-control" aria-label="Audit event filter" role="group">
           {(["all", "decision", "execution"] as const).map((value) => (
             <button
               className={kind === value ? "active" : ""}
