@@ -55,6 +55,8 @@ everything else          -> deny
 
 Do not rely on an ever-growing blacklist.
 
+The policy engine is deterministic and explainable. Matching deny rules take precedence over matching allow rules. If no rule matches, the result is `ask`; ShellWarden does not silently infer permission from similarity.
+
 ## Permission scopes
 
 v0.1 supports:
@@ -111,6 +113,8 @@ A path that resolves outside an allowed scope is outside the scope.
 Child processes receive a minimal environment.
 
 Additional variables are explicitly allowlisted. Secret-bearing variables should be scoped to the smallest set of executables that require them, and logs must redact secret-like values.
+
+The permission store persists environment-variable **names only**, never values. Raw argv is also not stored in the permission-rule table; persistent rules match normalized executable and operation metadata instead. Full request details remain transient until the later audit layer defines its own redaction contract.
 
 ## Audit
 
