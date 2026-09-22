@@ -45,6 +45,8 @@ Each execution block should show, where known:
 
 Prefer collapsible structured blocks over one global terminal scroll.
 
+The v0.1 implementation refreshes from backend activity snapshots immediately on ShellWarden execution events, with a low-frequency fallback refresh. Risk is hydrated from the deterministic risk engine and elapsed time updates locally while work is active. Recent policy decisions shown on the Dashboard are bounded session memory; durable history belongs to the Audit slice.
+
 ## Approval card
 
 An approval must explain:

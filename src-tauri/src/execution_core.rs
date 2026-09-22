@@ -304,6 +304,7 @@ impl ExecutionCoreState {
             source: "shellwarden-bootstrap".to_string(),
             session_id: None,
             command: vec!["git".to_string(), "--version".to_string()],
+            operation_class: "read".to_string(),
             directory: canonical_directory.display().to_string(),
             timeout_seconds: Some(15),
             environment_keys: Vec::new(),

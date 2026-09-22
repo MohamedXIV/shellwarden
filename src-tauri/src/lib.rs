@@ -9,14 +9,15 @@ use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use permission_policy::{
-    ApprovalScope, PolicyDecision, PolicyEffect, PolicyRequestInput, PolicyRuleView, PolicyState,
+    ApprovalScope, PolicyDecision, PolicyDecisionEvent, PolicyEffect, PolicyRequestInput,
+    PolicyRuleView, PolicyState,
 };
 use process_supervisor::ProcessSupervisor;
 use risk_policy::{assess, RiskAssessment, RiskRequestInput};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Manager, RunEvent, WindowEvent,
+    Emitter, Manager, RunEvent, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -44,6 +45,13 @@ fn policy_decide(
     input: PolicyRequestInput,
 ) -> Result<PolicyDecision, String> {
     state.decide(input)
+}
+
+#[tauri::command]
+fn policy_recent_decisions(
+    state: tauri::State<'_, PolicyState>,
+) -> Result<Vec<PolicyDecisionEvent>, String> {
+    state.recent_decisions()
 }
 
 #[tauri::command]
@@ -173,6 +181,7 @@ pub fn run() {
             execution_core_status,
             execution_activity_snapshot,
             policy_decide,
+            policy_recent_decisions,
             policy_grant_scope,
             risk_assess,
             policy_grant_session,
@@ -191,6 +200,15 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
 
             app.state::<ExecutionCoreState>().start(&repository_root());
+
+            let activity_events = app.state::<ExecutionActivityState>().subscribe();
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = activity_events.recv() {
+                    let _ = app_handle.emit("shellwarden://execution-activity", event);
+                }
+            });
+
             install_tray(app)?;
             Ok(())
         })
