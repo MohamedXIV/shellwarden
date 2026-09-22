@@ -1,7 +1,9 @@
+mod execution_activity;
 mod execution_core;
 mod lifecycle;
 mod process_supervisor;
 
+use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use process_supervisor::ProcessSupervisor;
@@ -21,6 +23,13 @@ const MENU_EXIT: &str = "exit";
 #[tauri::command]
 fn execution_core_status(state: tauri::State<'_, ExecutionCoreState>) -> ExecutionCoreStatus {
     state.status()
+}
+
+#[tauri::command]
+fn execution_activity_snapshot(
+    state: tauri::State<'_, ExecutionActivityState>,
+) -> Vec<ExecutionSnapshot> {
+    state.snapshot()
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -80,8 +89,12 @@ pub fn run() {
     let app = tauri::Builder::default()
         .manage(LifecycleState::default())
         .manage(ProcessSupervisor::default())
+        .manage(ExecutionActivityState::default())
         .manage(ExecutionCoreState::default())
-        .invoke_handler(tauri::generate_handler![execution_core_status])
+        .invoke_handler(tauri::generate_handler![
+            execution_core_status,
+            execution_activity_snapshot
+        ])
         .setup(|app| {
             app.state::<ExecutionCoreState>().start(&repository_root());
             install_tray(app)?;
@@ -107,6 +120,9 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let RunEvent::ExitRequested { .. } = event {
             app_handle.state::<LifecycleState>().begin_exit();
+            let _ = app_handle
+                .state::<ExecutionActivityState>()
+                .cancel_all_non_terminal();
             app_handle.state::<ExecutionCoreState>().stop();
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
         }

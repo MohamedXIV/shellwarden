@@ -12,11 +12,16 @@ import json
 import os
 import sys
 import types
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 EXPECTED_CORE_VERSION = "1.1.12"
 BOOTSTRAP_ALLOWED_COMMANDS = {"git"}
+STREAM_CHUNK_BYTES = 8192
+_CURRENT_REQUEST_ID: ContextVar[str | None] = ContextVar(
+    "shellwarden_execution_id", default=None
+)
 
 
 def _install_windows_pwd_compat() -> None:
@@ -44,12 +49,60 @@ def _install_windows_pwd_compat() -> None:
 _install_windows_pwd_compat()
 
 from mcp_shell_server import __version__ as core_version
+from mcp_shell_server.process_manager import OutputLimitExceeded, ProcessManager
 from mcp_shell_server.shell_executor import ShellExecutor
 
 
 def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
     sys.stdout.flush()
+
+
+def _emit_event(request_id: str | None, event: str, **fields: Any) -> None:
+    _emit({"type": "event", "id": request_id, "event": event, **fields})
+
+
+class StreamingProcessManager(ProcessManager):
+    """Mirror bounded stdout/stderr chunks while preserving upstream execution."""
+
+    def __init__(self, sink: Callable[[dict[str, Any]], None]) -> None:
+        self._stream_sink = sink
+        super().__init__()
+
+    async def _read_stream_limited(
+        self,
+        stream: Any,
+        stream_name: str,
+        limit: int,
+    ) -> bytes:
+        if stream is None:
+            return b""
+
+        data = bytearray()
+        while True:
+            remaining = max(1, limit + 1 - len(data))
+            chunk = await stream.read(min(STREAM_CHUNK_BYTES, remaining))
+            if not chunk:
+                return bytes(data)
+
+            data.extend(chunk)
+            request_id = _CURRENT_REQUEST_ID.get()
+            if request_id is not None:
+                self._stream_sink(
+                    {
+                        "type": "event",
+                        "id": request_id,
+                        "event": "output",
+                        "stream": stream_name,
+                        "chunk": chunk.decode(errors="replace"),
+                    }
+                )
+
+            if len(data) > limit:
+                partial = bytes(data[:limit])
+                if stream_name == "stdout":
+                    raise OutputLimitExceeded(stream_name, limit, stdout=partial)
+                raise OutputLimitExceeded(stream_name, limit, stderr=partial)
 
 
 def _error(request_id: str | None, message: str) -> dict[str, Any]:
@@ -89,40 +142,72 @@ async def _execute(
     if not isinstance(command, list) or not command or not all(
         isinstance(part, str) and part for part in command
     ):
-        return _error(request_id, "command must be a non-empty string array")
+        message = "command must be a non-empty string array"
+        _emit_event(request_id, "failed", reason=message)
+        return _error(request_id, message)
 
     if command[0] not in BOOTSTRAP_ALLOWED_COMMANDS:
-        return _error(
-            request_id,
-            f"bootstrap policy does not allow executable: {command[0]}",
-        )
+        message = f"bootstrap policy does not allow executable: {command[0]}"
+        _emit_event(request_id, "denied", reason=message)
+        return _error(request_id, message)
 
     if not isinstance(directory, str) or not directory:
-        return _error(request_id, "directory must be a non-empty string")
+        message = "directory must be a non-empty string"
+        _emit_event(request_id, "failed", reason=message)
+        return _error(request_id, message)
 
     canonical_directory = str(Path(directory).resolve())
 
     if timeout is not None and (
         isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0
     ):
-        return _error(request_id, "timeout must be a positive integer")
+        message = "timeout must be a positive integer"
+        _emit_event(request_id, "failed", reason=message)
+        return _error(request_id, message)
 
     if "envs" in payload:
-        return _error(
-            request_id,
-            "per-request environment overrides are not exposed by the bootstrap broker",
-        )
+        message = "per-request environment overrides are not exposed by the bootstrap broker"
+        _emit_event(request_id, "denied", reason=message)
+        return _error(request_id, message)
 
-    result = await executor.execute(
+    _emit_event(
+        request_id,
+        "running",
         command=command,
         directory=canonical_directory,
-        timeout=timeout,
+    )
+
+    token = _CURRENT_REQUEST_ID.set(request_id)
+    try:
+        result = await executor.execute(
+            command=command,
+            directory=canonical_directory,
+            timeout=timeout,
+        )
+    finally:
+        _CURRENT_REQUEST_ID.reset(token)
+
+    status = result.get("status")
+    error = result.get("error")
+    if status == 0:
+        terminal_event = "succeeded"
+    elif status == -1 and isinstance(error, str) and "timed out" in error.lower():
+        terminal_event = "timed_out"
+    else:
+        terminal_event = "failed"
+
+    _emit_event(
+        request_id,
+        terminal_event,
+        status=status,
+        executionTime=result.get("execution_time"),
+        reason=error,
     )
 
     return {
         "type": "response",
         "id": request_id,
-        "ok": result.get("status") == 0,
+        "ok": status == 0,
         "coreVersion": core_version,
         "result": result,
     }
@@ -130,6 +215,7 @@ async def _execute(
 
 async def _handle(executor: ShellExecutor, payload: Any) -> dict[str, Any]:
     request_id: str | None = None
+    request_type: str | None = None
 
     try:
         request_id, request_type, normalized = _normalize_request(payload)
@@ -143,8 +229,11 @@ async def _handle(executor: ShellExecutor, payload: Any) -> dict[str, Any]:
                 "allowedCommands": sorted(BOOTSTRAP_ALLOWED_COMMANDS),
             }
 
+        _emit_event(request_id, "requested")
         return await _execute(executor, request_id, normalized)
     except Exception as exc:
+        if request_type == "execute":
+            _emit_event(request_id, "failed", reason=str(exc))
         return _error(request_id, str(exc))
 
 
@@ -167,7 +256,8 @@ def main() -> int:
     os.environ.pop("ALLOWED_COMMANDS", None)
     os.environ.pop("ALLOW_PATTERNS", None)
 
-    executor = ShellExecutor()
+    process_manager = StreamingProcessManager(_emit)
+    executor = ShellExecutor(process_manager=process_manager)
 
     _emit(
         {
