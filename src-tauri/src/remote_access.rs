@@ -5,6 +5,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
+    env,
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
@@ -218,6 +219,7 @@ impl RemoteAccessState {
         let _ = fs::remove_file(&health_url_file);
 
         let mut command = Command::new(&config.binary);
+        apply_minimal_tunnel_environment(&mut command, &config.api_key);
         command
             .arg("run")
             .args(["--control-plane.tunnel-id", &config.tunnel_id])
@@ -227,7 +229,6 @@ impl RemoteAccessState {
             .arg("--health.url-file")
             .arg(&health_url_file)
             .args(["--log.level", "warn"])
-            .env("CONTROL_PLANE_API_KEY", &config.api_key)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -381,6 +382,27 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
     });
 }
 
+fn apply_minimal_tunnel_environment(command: &mut Command, api_key: &str) {
+    command.env_clear();
+
+    for key in [
+        "PATH",
+        "SystemRoot",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOME",
+    ] {
+        if let Some(value) = env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+
+    command.env("CONTROL_PLANE_API_KEY", api_key);
+}
+
 fn validate_tunnel_binary(binary: &str) -> Result<(), String> {
     let file_name = PathBuf::from(binary)
         .file_name()
@@ -452,12 +474,38 @@ fn probe_ready(base_url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{probe_ready, validate_tunnel_binary, validate_tunnel_id};
+    use super::{
+        apply_minimal_tunnel_environment, probe_ready, validate_tunnel_binary, validate_tunnel_id,
+    };
     use std::{
         io::{Read, Write},
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn tunnel_child_environment_is_explicit_and_minimal() {
+        let mut command = std::process::Command::new("tunnel-client");
+        command.env("SHELLWARDEN_SHOULD_NOT_LEAK", "secret");
+        apply_minimal_tunnel_environment(&mut command, "runtime-key");
+
+        let explicit = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|value| value.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(explicit.iter().any(|(key, value)| {
+            key == "CONTROL_PLANE_API_KEY" && value.as_deref() == Some("runtime-key")
+        }));
+        assert!(!explicit.iter().any(|(key, value)| {
+            key == "SHELLWARDEN_SHOULD_NOT_LEAK" && value.as_deref() == Some("secret")
+        }));
+    }
 
     #[test]
     fn tunnel_binary_name_is_restricted_before_receiving_runtime_key() {
