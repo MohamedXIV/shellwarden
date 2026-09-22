@@ -16,6 +16,7 @@ use rmcp::{
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
+    path::Path,
     sync::{Mutex, MutexGuard},
     thread,
     time::Duration,
@@ -246,13 +247,18 @@ fn execute_remote(
     app: &AppHandle,
     params: ShellExecuteParams,
 ) -> Result<(String, Value), String> {
+    let canonical_directory = Path::new(&params.directory)
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize remote working directory: {error}"))?
+        .display()
+        .to_string();
     let operation_class = "remote_request".to_string();
     let input = PolicyRequestInput {
         source: REMOTE_SOURCE.to_string(),
         session_id: Some(REMOTE_SESSION.to_string()),
         command: params.command.clone(),
         operation_class: operation_class.clone(),
-        directory: params.directory.clone(),
+        directory: canonical_directory.clone(),
         environment_keys: Vec::new(),
     };
 
@@ -261,7 +267,7 @@ fn execute_remote(
         session_id: Some(REMOTE_SESSION.to_string()),
         command: params.command.clone(),
         operation_class,
-        directory: params.directory.clone(),
+        directory: canonical_directory.clone(),
         timeout_seconds: params.timeout_seconds,
         environment_keys: Vec::new(),
     });
@@ -297,7 +303,7 @@ fn execute_remote(
         &activity,
         &execution_id,
         &params.command,
-        &params.directory,
+        &canonical_directory,
         params.timeout_seconds,
     )?;
 
