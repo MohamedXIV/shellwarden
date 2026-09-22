@@ -42,6 +42,21 @@ impl ProcessSupervisor {
         children.len()
     }
 
+    pub fn is_running(&self, id: &str) -> bool {
+        let mut children = self.children();
+        let running = children.get_mut(id).is_some_and(|child| match child.try_wait() {
+            Ok(Some(_)) => false,
+            Ok(None) => true,
+            Err(_) => true,
+        });
+
+        if !running {
+            children.remove(id);
+        }
+
+        running
+    }
+
     pub fn stop(&self, id: &str) -> bool {
         let child = self.children().remove(id);
         if let Some(mut child) = child {
