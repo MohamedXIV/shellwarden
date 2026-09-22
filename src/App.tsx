@@ -752,7 +752,7 @@ function ActivityView({
   );
 }
 
-function Placeholder({ section }: { section: "Settings" }) {
+function Placeholder() {
   return (
     <section className="panel section-placeholder">
       <span className="section-kicker">SETTINGS</span>
@@ -1088,7 +1088,7 @@ export function App() {
   } else if (section === "Audit") {
     content = <AuditView entries={auditEntries} error={managementError} />;
   } else {
-    content = <Placeholder section="Settings" />;
+    content = <Placeholder />;
   }
 
   return (
