@@ -1,3 +1,9 @@
+use crate::{
+    execution_activity::{
+        ExecutionActivityState, ExecutionStatus, ExecutionStream, NewExecutionRequest,
+    },
+    process_supervisor::terminate_child_tree,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -126,10 +132,18 @@ impl BrokerProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
 
-    fn request(&mut self, payload: Value) -> Result<Value, String> {
+    fn request<F>(&mut self, payload: Value, mut on_event: F) -> Result<Value, String>
+    where
+        F: FnMut(&Value),
+    {
         if !self.is_running() {
             return Err("execution broker is not running".to_string());
         }
+
+        let request_id = payload
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
 
         serde_json::to_writer(&mut self.stdin, &payload)
             .map_err(|error| format!("failed to encode execution request: {error}"))?;
@@ -140,35 +154,66 @@ impl BrokerProcess {
             .flush()
             .map_err(|error| format!("failed to flush execution request: {error}"))?;
 
-        let mut line = String::new();
-        let bytes = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| format!("failed to read execution response: {error}"))?;
+        loop {
+            let mut line = String::new();
+            let bytes = self
+                .stdout
+                .read_line(&mut line)
+                .map_err(|error| format!("failed to read execution response: {error}"))?;
 
-        if bytes == 0 {
-            return Err("execution broker closed its output stream".to_string());
+            if bytes == 0 {
+                return Err("execution broker closed its output stream".to_string());
+            }
+
+            let message: Value = serde_json::from_str(line.trim())
+                .map_err(|error| format!("invalid execution broker response: {error}"))?;
+            let message_id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+
+            if request_id != message_id {
+                return Err(format!(
+                    "execution broker returned mismatched id: expected {:?}, got {:?}",
+                    request_id, message_id
+                ));
+            }
+
+            match message.get("type").and_then(Value::as_str) {
+                Some("event") => on_event(&message),
+                Some("response") => return Ok(message),
+                other => {
+                    return Err(format!(
+                        "execution broker returned unexpected message type: {other:?}"
+                    ))
+                }
+            }
         }
-
-        serde_json::from_str(line.trim())
-            .map_err(|error| format!("invalid execution broker response: {error}"))
     }
 
-    fn execute_bootstrap_probe(&mut self, directory: &Path) -> Result<Value, String> {
-        self.request(json!({
-            "id": "shellwarden-bootstrap-probe",
-            "type": "execute",
-            "command": ["git", "--version"],
-            "directory": directory,
-            "timeout": 15
-        }))
+    fn execute_bootstrap_probe<F>(
+        &mut self,
+        directory: &Path,
+        request_id: &str,
+        on_event: F,
+    ) -> Result<Value, String>
+    where
+        F: FnMut(&Value),
+    {
+        self.request(
+            json!({
+                "id": request_id,
+                "type": "execute",
+                "command": ["git", "--version"],
+                "directory": directory,
+                "timeout": 15
+            }),
+            on_event,
+        )
     }
 
     fn stop(&mut self) {
-        if self.is_running() {
-            let _ = self.child.kill();
-        }
-        let _ = self.child.wait();
+        terminate_child_tree(&mut self.child);
     }
 }
 
@@ -247,11 +292,87 @@ impl ExecutionCoreState {
         )
     }
 
+    pub fn execute_bootstrap_probe_with_activity(
+        &self,
+        activity: &ExecutionActivityState,
+        directory: &Path,
+    ) -> Result<(String, Value), String> {
+        let canonical_directory = directory
+            .canonicalize()
+            .map_err(|error| format!("failed to canonicalize execution directory: {error}"))?;
+        let execution = activity.begin(NewExecutionRequest {
+            source: "shellwarden-bootstrap".to_string(),
+            session_id: None,
+            command: vec!["git".to_string(), "--version".to_string()],
+            directory: canonical_directory.display().to_string(),
+            timeout_seconds: Some(15),
+            environment_keys: Vec::new(),
+        });
+        let execution_id = execution.id.clone();
+
+        let result = {
+            let mut inner = self.inner();
+            match inner.broker.as_mut() {
+                Some(broker) => broker.execute_bootstrap_probe(
+                    &canonical_directory,
+                    &execution_id,
+                    |event| apply_broker_event(activity, &execution_id, event),
+                ),
+                None => Err("execution broker is not running".to_string()),
+            }
+        };
+
+        if result.is_err() {
+            let _ = activity.transition(&execution_id, ExecutionStatus::Failed);
+        }
+
+        result.map(|response| (execution_id, response))
+    }
+
     pub fn stop(&self) {
         let mut inner = self.inner();
         if let Some(mut broker) = inner.broker.take() {
             broker.stop();
         }
+    }
+}
+
+fn apply_broker_event(activity: &ExecutionActivityState, execution_id: &str, event: &Value) {
+    if event.get("id").and_then(Value::as_str) != Some(execution_id) {
+        return;
+    }
+
+    match event.get("event").and_then(Value::as_str) {
+        Some("requested") => {}
+        Some("running") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::Running);
+        }
+        Some("output") => {
+            let stream = match event.get("stream").and_then(Value::as_str) {
+                Some("stdout") => ExecutionStream::Stdout,
+                Some("stderr") => ExecutionStream::Stderr,
+                _ => return,
+            };
+            if let Some(chunk) = event.get("chunk").and_then(Value::as_str) {
+                let _ = activity.append_output(execution_id, stream, chunk);
+            }
+        }
+        Some("succeeded") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::Succeeded);
+        }
+        Some("failed") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::Failed);
+        }
+        Some("denied") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::Denied);
+        }
+        Some("cancelled") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::Cancelled);
+        }
+        Some("timed_out") => {
+            let _ = activity.transition(execution_id, ExecutionStatus::TimedOut);
+        }
+        _ => {}
     }
 }
 
@@ -264,32 +385,47 @@ pub fn repository_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{repository_root, BrokerProcess, EXPECTED_CORE_VERSION};
+    use super::{repository_root, ExecutionCoreState, EXPECTED_CORE_VERSION};
+    use crate::execution_activity::{ExecutionActivityState, ExecutionStatus};
+    use serde_json::Value;
 
     #[test]
     #[ignore = "requires execution/requirements.txt to be installed"]
-    fn pinned_upstream_executes_harmless_git_probe() {
+    fn pinned_upstream_streams_harmless_git_probe_into_activity() {
         let root = repository_root();
-        let mut broker = BrokerProcess::spawn(&root).expect("broker should start");
+        let core = ExecutionCoreState::default();
+        let activity = ExecutionActivityState::default();
+        core.start(&root);
 
-        assert_eq!(broker.detected_version, EXPECTED_CORE_VERSION);
+        assert_eq!(
+            core.status().detected_version.as_deref(),
+            Some(EXPECTED_CORE_VERSION)
+        );
 
-        let response = broker
-            .execute_bootstrap_probe(&root)
+        let (execution_id, response) = core
+            .execute_bootstrap_probe_with_activity(&activity, &root)
             .expect("bootstrap git probe should return");
 
-        assert_eq!(response.get("ok").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(response.get("ok").and_then(Value::as_bool), Some(true));
         assert_eq!(
             response
                 .pointer("/result/status")
-                .and_then(|value| value.as_i64()),
+                .and_then(Value::as_i64),
             Some(0)
         );
-        assert!(response
-            .pointer("/result/stdout")
-            .and_then(|value| value.as_str())
-            .is_some_and(|stdout| stdout.to_ascii_lowercase().contains("git version")));
 
-        broker.stop();
+        let snapshot = activity.snapshot();
+        let execution = snapshot
+            .iter()
+            .find(|execution| execution.request.id == execution_id)
+            .expect("activity should retain the probe");
+
+        assert_eq!(execution.state, ExecutionStatus::Succeeded);
+        assert!(execution
+            .stdout_tail
+            .to_ascii_lowercase()
+            .contains("git version"));
+
+        core.stop();
     }
 }
