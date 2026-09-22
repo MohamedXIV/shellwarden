@@ -9,7 +9,7 @@ ShellWarden is a local-first desktop control center for safely exposing shell ac
 
 ## Current status
 
-The Windows app has a tray-first lifecycle and now supervises a pinned `mcp-shell-server 1.1.12` execution core behind ShellWarden's own broker boundary. The core is still **local-only**: no remote MCP client and no frontend action can request arbitrary execution yet.
+The Windows app has a tray-first lifecycle, supervises a pinned `mcp-shell-server 1.1.12` execution core, hosts a loopback-only Streamable HTTP MCP endpoint, and can supervise OpenAI Secure MCP Tunnel as its first remote transport. Remote calls enter the same ShellWarden policy, approval, activity, and audit path before reaching the execution core.
 
 Current development version: **0.0.0-dev**
 
@@ -48,7 +48,7 @@ cargo test --manifest-path src-tauri/Cargo.toml pinned_upstream_executes_harmles
 npm run tauri:build
 ```
 
-See [Execution Core](docs/EXECUTION_CORE.md) for the upstream pin and broker boundary. Manual tray verification is documented in [docs/verification/issue-3-windows-lifecycle.md](docs/verification/issue-3-windows-lifecycle.md).
+See [Execution Core](docs/EXECUTION_CORE.md) for the upstream pin and broker boundary. Manual tray verification is documented in [docs/verification/issue-3-windows-lifecycle.md](docs/verification/issue-3-windows-lifecycle.md), and the real Secure MCP Tunnel acceptance flow is documented in [docs/verification/issue-12-secure-mcp-tunnel.md](docs/verification/issue-12-secure-mcp-tunnel.md).
 
 ## v0.1 goal
 
@@ -77,6 +77,7 @@ Ship a Windows-first application that we can dogfood daily:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security model](docs/SECURITY.md)
 - [Execution core](docs/EXECUTION_CORE.md)
+- [Secure MCP Tunnel dogfood](docs/verification/issue-12-secure-mcp-tunnel.md)
 - [UX](docs/UX.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Versioning and releases](docs/RELEASING.md)
