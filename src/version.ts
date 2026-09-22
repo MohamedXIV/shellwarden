@@ -1,0 +1,1 @@
+export const APP_VERSION = __SHELLWARDEN_VERSION__;

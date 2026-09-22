@@ -1,0 +1,36 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - run: npm install
+      - run: npm run check
+      - run: npm run build:web
+
+  tauri:
+    name: Tauri cargo check (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - run: npm install
+      - run: rustup toolchain install stable --profile minimal
+      - run: rustup default stable
+      - run: npm run build:web
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
