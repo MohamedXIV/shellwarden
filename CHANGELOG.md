@@ -17,9 +17,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Rust lifecycle tests and a documented manual Windows tray/exit verification checklist.
 - Pinned `mcp-shell-server 1.1.12` execution core behind a ShellWarden-owned JSON-lines broker boundary.
 - Execution-core health/version status surfaced in the desktop dashboard and verified with a real harmless `git --version` broker probe.
+- Structured execution IDs, lifecycle state, backend subscriptions, bounded stdout/stderr activity tails, and read-only activity snapshots.
+- Broker-level stdout/stderr streaming events while retaining the pinned upstream validator/executor path.
+- Per-process stop support and Windows process-tree termination for managed helpers.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
+- Hard Exit now resolves unfinished activity as cancelled before terminating execution-core and managed process trees.
 
 ### Security
 - Established the core rule that ShellWarden is a trusted execution gateway, not an OS sandbox.
@@ -28,4 +32,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Explicit tray Exit initiates managed-process cleanup before the application terminates; no Windows Service or hidden always-on ShellWarden helper is introduced.
 - Bootstrap execution remains local-only, accepts argv arrays rather than shell strings, exposes no per-request environment overrides, and admits only `git` before upstream validation.
 - Added a process-local Windows compatibility adapter for the pinned upstream package instead of weakening or replacing its validation path.
+- Live activity retains bounded output tails rather than an unbounded in-memory terminal transcript.
 
