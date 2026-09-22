@@ -246,6 +246,7 @@ impl RemoteAccessState {
             .arg("--health.url-file")
             .arg(&health_url_file)
             .args(["--log.level", "warn"])
+            .args(["--log.format", "struct-text"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
