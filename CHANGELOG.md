@@ -32,6 +32,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
 - Hard Exit now resolves unfinished activity as cancelled before terminating execution-core and managed process trees.
 
+### Fixed
+- Secure MCP Tunnel startup now supplies the structured log format required by `tunnel-client` when an explicit log level is configured.
+
 ### Security
 - Established the core rule that ShellWarden is a trusted execution gateway, not an OS sandbox.
 - Established Windows-first least-privilege and explicit lifecycle requirements for v0.1.
