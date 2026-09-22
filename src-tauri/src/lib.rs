@@ -21,7 +21,7 @@ use risk_policy::{assess, RiskAssessment, RiskRequestInput};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, UserAttentionType, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -323,6 +323,21 @@ pub fn run() {
                     match &event {
                         ApprovalEvent::Changed { approval, .. } => {
                             apply_approval_to_activity(&approval_app, approval);
+                            if approval.status == ApprovalStatus::Pending {
+                                if let Some(window) =
+                                    approval_app.get_webview_window(MAIN_WINDOW_LABEL)
+                                {
+                                    let attention = if matches!(
+                                        approval.risk.class,
+                                        risk_policy::RiskClass::Critical
+                                    ) {
+                                        UserAttentionType::Critical
+                                    } else {
+                                        UserAttentionType::Informational
+                                    };
+                                    let _ = window.request_user_attention(Some(attention));
+                                }
+                            }
                         }
                     }
                     let _ = approval_app.emit("shellwarden://approval", event);
