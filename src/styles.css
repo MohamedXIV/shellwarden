@@ -1418,3 +1418,413 @@ button {
     word-break: break-word;
   }
 }
+
+
+/* Permissions + Audit */
+
+.management-page {
+  min-height: 100%;
+}
+
+.management-metrics {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.management-metrics span {
+  padding: 7px 9px;
+  border: 1px solid #282e34;
+  border-radius: 7px;
+  color: #69727b;
+  background: #0d1014;
+  font-size: 9px;
+}
+
+.management-metrics strong {
+  color: #c2c8ce;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+.management-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 11px;
+}
+
+.management-toolbar input {
+  min-width: 260px;
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid #2a3036;
+  border-radius: 7px;
+  outline: none;
+  color: #c0c6cc;
+  background: #0a0d10;
+  font: inherit;
+  font-size: 10px;
+}
+
+.management-toolbar input:focus {
+  border-color: #3c6657;
+  box-shadow: 0 0 0 2px rgba(93, 168, 139, 0.08);
+}
+
+.segmented-control {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid #292f35;
+  border-radius: 7px;
+}
+
+.segmented-control button {
+  padding: 8px 10px;
+  border: 0;
+  border-right: 1px solid #292f35;
+  color: #69717a;
+  background: #0c0f13;
+  cursor: pointer;
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.segmented-control button:last-child {
+  border-right: 0;
+}
+
+.segmented-control button.active {
+  color: #bfe1d4;
+  background: #14221d;
+}
+
+.permission-reset-strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.permission-reset-strip > button,
+.inline-confirm button {
+  padding: 8px 10px;
+  border: 1px solid #2a3036;
+  border-radius: 7px;
+  color: #828a93;
+  background: #0d1014;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.permission-reset-strip button:disabled,
+.inline-confirm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.danger-outline {
+  border-color: #4c3030 !important;
+  color: #cf8585 !important;
+  background: #161010 !important;
+}
+
+.danger-outline.compact {
+  padding: 7px 9px;
+}
+
+.danger-solid {
+  border-color: #754141 !important;
+  color: #f0b0b0 !important;
+  background: #542727 !important;
+}
+
+.inline-confirm {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 5px 5px 10px;
+  border: 1px solid #4a3030;
+  border-radius: 8px;
+  color: #a77a7a;
+  background: #181010;
+  font-size: 9px;
+}
+
+.permission-list,
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 15px;
+}
+
+.permission-card,
+.audit-card {
+  padding: 16px;
+  border: 1px solid #252b31;
+  border-radius: 9px;
+  background: #0d1014;
+}
+
+.permission-card.effect-allow {
+  border-left: 3px solid #4f937a;
+}
+
+.permission-card.effect-deny {
+  border-left: 3px solid #a65f5f;
+}
+
+.permission-card-head,
+.audit-card-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.permission-card-head > div,
+.audit-title {
+  min-width: 0;
+}
+
+.permission-badges,
+.audit-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.permission-badges span,
+.audit-kind {
+  padding: 3px 6px;
+  border: 1px solid #2c3339;
+  border-radius: 5px;
+  color: #717a83;
+  background: #0a0d10;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.effect-badge.effect-allow {
+  border-color: #29443a;
+  color: #75b79d;
+  background: #10211b;
+}
+
+.effect-badge.effect-deny {
+  border-color: #4a2c2c;
+  color: #d27d7d;
+  background: #211313;
+}
+
+.permission-card-head strong {
+  display: block;
+  margin-top: 10px;
+  color: #d0d5da;
+  font-size: 13px;
+}
+
+.permission-card-head code {
+  display: block;
+  margin-top: 4px;
+  color: #4f5861;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+}
+
+.permission-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.permission-details > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #20262b;
+  border-radius: 7px;
+  background: #0a0d10;
+}
+
+.permission-details span,
+.permission-details strong {
+  display: block;
+}
+
+.permission-details span {
+  color: #555e67;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.permission-details strong {
+  margin-top: 5px;
+  overflow: hidden;
+  color: #858d96;
+  font-size: 9px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-session {
+  margin: 10px 0 0;
+  color: #59626b;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+}
+
+.management-empty {
+  display: grid;
+  min-height: 300px;
+  margin-top: 15px;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.management-empty strong {
+  margin-bottom: 7px;
+  color: #929aa3;
+  font-size: 12px;
+}
+
+.management-empty p {
+  max-width: 540px;
+  margin: 0;
+  color: #606973;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.audit-card {
+  border-left: 3px solid #4d5760;
+}
+
+.audit-card.kind-decision {
+  border-left-color: #7e7150;
+}
+
+.audit-card.kind-execution {
+  border-left-color: #4e806f;
+}
+
+.audit-title strong {
+  color: #c7cdd2;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.audit-kind.kind-decision {
+  color: #c8ae70;
+  border-color: #493e26;
+}
+
+.audit-kind.kind-execution {
+  color: #7fbaa4;
+  border-color: #29483d;
+}
+
+.audit-card-head time {
+  flex: 0 0 auto;
+  color: #535c65;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+}
+
+.audit-details,
+.audit-links {
+  display: flex;
+  gap: 7px 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: #626b74;
+  font-size: 9px;
+}
+
+.audit-result {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #15191d;
+  text-transform: uppercase;
+  font-size: 8px;
+}
+
+.result-allow,
+.result-succeeded {
+  color: #79b79f;
+  background: #10211b;
+}
+
+.result-deny,
+.result-denied,
+.result-failed,
+.result-timed_out {
+  color: #d27f7f;
+  background: #221313;
+}
+
+.result-ask {
+  color: #d0ad70;
+  background: #241c10;
+}
+
+.audit-links {
+  padding-top: 9px;
+  border-top: 1px solid #20262b;
+}
+
+.audit-links code {
+  color: #86bea9;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+}
+
+.audit-reason {
+  max-width: 860px;
+  margin: 9px 0 0;
+  color: #69727b;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .management-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .management-toolbar input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .permission-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .permission-details {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-card-head,
+  .audit-card-head {
+    flex-direction: column;
+  }
+
+  .audit-card-head time {
+    align-self: flex-start;
+  }
+}
