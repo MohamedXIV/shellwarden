@@ -1,8 +1,7 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
@@ -32,6 +31,52 @@ impl PolicyEffect {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalScope {
+    Once,
+    Session,
+    ExactRequest,
+    ExactDirectory,
+    DirectoryTree,
+    Always,
+    Deny,
+}
+
+impl ApprovalScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Once => "once",
+            Self::Session => "session",
+            Self::ExactRequest => "exact_request",
+            Self::ExactDirectory => "exact_directory",
+            Self::DirectoryTree => "directory_tree",
+            Self::Always => "always",
+            Self::Deny => "deny",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "once" => Ok(Self::Once),
+            "session" => Ok(Self::Session),
+            "exact_request" => Ok(Self::ExactRequest),
+            "exact_directory" => Ok(Self::ExactDirectory),
+            "directory_tree" => Ok(Self::DirectoryTree),
+            "always" => Ok(Self::Always),
+            "deny" => Ok(Self::Deny),
+            other => Err(format!("invalid stored approval scope: {other}")),
+        }
+    }
+
+    fn is_persistent(self) -> bool {
+        matches!(
+            self,
+            Self::ExactRequest | Self::ExactDirectory | Self::DirectoryTree | Self::Always | Self::Deny
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyOutcome {
@@ -57,11 +102,12 @@ struct NormalizedPolicyRequest {
     source: String,
     session_id: Option<String>,
     executable: String,
-    command: Vec<String>,
     operation_class: String,
-    directory: String,
+    directory: PathBuf,
+    directory_text: String,
     environment_keys: Vec<String>,
     fingerprint: String,
+    operation_fingerprint: String,
 }
 
 impl NormalizedPolicyRequest {
@@ -69,55 +115,113 @@ impl NormalizedPolicyRequest {
         if input.command.is_empty() || input.command.iter().any(|part| part.is_empty()) {
             return Err("policy command must be a non-empty argv array".to_string());
         }
-        if input.source.trim().is_empty() {
+
+        let source = input.source.trim().to_string();
+        if source.is_empty() {
             return Err("policy source must not be empty".to_string());
         }
-        if input.operation_class.trim().is_empty() {
+
+        let operation_class = input.operation_class.trim().to_string();
+        if operation_class.is_empty() {
             return Err("policy operation class must not be empty".to_string());
         }
 
-        let canonical_directory = PathBuf::from(&input.directory)
-            .canonicalize()
-            .map_err(|error| format!("failed to canonicalize policy directory: {error}"))?;
+        let session_id = input
+            .session_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
 
-        let mut environment_keys = input.environment_keys;
-        environment_keys.sort();
-        environment_keys.dedup();
+        let directory = canonical_directory(&input.directory)?;
+        let directory_text = path_text(&directory)?;
+
+        let mut environment_keys = input
+            .environment_keys
+            .into_iter()
+            .map(|key| key.trim().to_string())
+            .collect::<Vec<_>>();
         if environment_keys.iter().any(|key| key.is_empty()) {
             return Err("environment key names must not be empty".to_string());
         }
+        environment_keys.sort();
+        environment_keys.dedup();
 
         let executable = input.command[0].clone();
-        let directory = canonical_directory.to_string_lossy().to_string();
-        let fingerprint = request_fingerprint(
-            &input.source,
+        let operation_fingerprint = operation_fingerprint(
+            &source,
             &input.command,
-            &input.operation_class,
-            &directory,
+            &operation_class,
+            &environment_keys,
+        )?;
+        let fingerprint = request_fingerprint(
+            &source,
+            &input.command,
+            &operation_class,
+            &directory_text,
             &environment_keys,
         )?;
 
         Ok(Self {
-            source: input.source,
-            session_id: input.session_id,
+            source,
+            session_id,
             executable,
-            command: input.command,
-            operation_class: input.operation_class,
+            operation_class,
             directory,
+            directory_text,
             environment_keys,
             fingerprint,
+            operation_fingerprint,
         })
     }
 }
 
+fn canonical_directory(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("policy directory must not be empty".to_string());
+    }
+
+    PathBuf::from(trimmed)
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize policy directory: {error}"))
+}
+
+fn path_text(path: &Path) -> Result<String, String> {
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "policy paths must be valid Unicode".to_string())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FingerprintMaterial<'a> {
+struct OperationFingerprintMaterial<'a> {
+    source: &'a str,
+    command: &'a [String],
+    operation_class: &'a str,
+    environment_keys: &'a [String],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestFingerprintMaterial<'a> {
     source: &'a str,
     command: &'a [String],
     operation_class: &'a str,
     directory: &'a str,
     environment_keys: &'a [String],
+}
+
+fn operation_fingerprint(
+    source: &str,
+    command: &[String],
+    operation_class: &str,
+    environment_keys: &[String],
+) -> Result<String, String> {
+    hash_material(&OperationFingerprintMaterial {
+        source,
+        command,
+        operation_class,
+        environment_keys,
+    })
 }
 
 fn request_fingerprint(
@@ -127,14 +231,17 @@ fn request_fingerprint(
     directory: &str,
     environment_keys: &[String],
 ) -> Result<String, String> {
-    let material = FingerprintMaterial {
+    hash_material(&RequestFingerprintMaterial {
         source,
         command,
         operation_class,
         directory,
         environment_keys,
-    };
-    let encoded = serde_json::to_vec(&material)
+    })
+}
+
+fn hash_material<T: Serialize>(material: &T) -> Result<String, String> {
+    let encoded = serde_json::to_vec(material)
         .map_err(|error| format!("failed to fingerprint policy request: {error}"))?;
     let digest = Sha256::digest(encoded);
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
@@ -153,26 +260,45 @@ pub struct PolicyDecision {
 pub struct PolicyRuleView {
     pub id: String,
     pub effect: PolicyEffect,
+    pub scope: ApprovalScope,
     pub persistence: String,
     pub source: String,
     pub session_id: Option<String>,
     pub executable: String,
     pub operation_class: String,
     pub directory: String,
+    pub scope_root: Option<String>,
     pub environment_key_count: usize,
     pub created_at_ms: u64,
 }
 
 #[derive(Clone)]
-struct SessionRule {
+struct EphemeralRule {
     id: u64,
     effect: PolicyEffect,
-    session_id: String,
+    scope: ApprovalScope,
+    session_id: Option<String>,
     fingerprint: String,
     source: String,
     executable: String,
     operation_class: String,
     directory: String,
+    environment_key_count: usize,
+    created_at_ms: u64,
+}
+
+#[derive(Clone)]
+struct PersistentRule {
+    id: i64,
+    effect: PolicyEffect,
+    scope: ApprovalScope,
+    fingerprint: String,
+    operation_fingerprint: Option<String>,
+    source: String,
+    executable: String,
+    operation_class: String,
+    directory: String,
+    scope_root: Option<String>,
     environment_key_count: usize,
     created_at_ms: u64,
 }
@@ -190,91 +316,71 @@ impl PersistentRuleStore {
 
         let connection = Connection::open(path)
             .map_err(|error| format!("failed to open policy database: {error}"))?;
-        connection
-            .execute_batch(
-                "
-                PRAGMA journal_mode = WAL;
-                PRAGMA foreign_keys = ON;
-                CREATE TABLE IF NOT EXISTS policy_rules (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    effect TEXT NOT NULL CHECK(effect IN ('allow', 'deny')),
-                    fingerprint TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    executable TEXT NOT NULL,
-                    operation_class TEXT NOT NULL,
-                    directory TEXT NOT NULL,
-                    environment_key_count INTEGER NOT NULL,
-                    created_at_ms INTEGER NOT NULL,
-                    UNIQUE(effect, fingerprint)
-                );
-                CREATE INDEX IF NOT EXISTS idx_policy_rules_match
-                    ON policy_rules(fingerprint, effect);
-                ",
-            )
-            .map_err(|error| format!("failed to initialize policy database: {error}"))?;
-
+        initialize_schema(&connection)?;
         Ok(Self { connection })
     }
 
     fn insert(
         &self,
         effect: PolicyEffect,
+        scope: ApprovalScope,
         request: &NormalizedPolicyRequest,
-    ) -> Result<i64, String> {
+        scope_root: Option<&Path>,
+    ) -> Result<PersistentRule, String> {
+        if !scope.is_persistent() {
+            return Err(format!("scope {} is not persistent", scope.as_str()));
+        }
+
+        let scope_root_text = scope_root.map(path_text).transpose()?;
+
+        if let Some(existing) = self
+            .list()?
+            .into_iter()
+            .find(|rule| persistent_rule_identity_matches(rule, effect, scope, request, scope_root_text.as_deref()))
+        {
+            return Ok(existing);
+        }
+
         let created_at_ms = now_ms() as i64;
         self.connection
             .execute(
-                "INSERT OR IGNORE INTO policy_rules (
-                    effect, fingerprint, source, executable, operation_class,
-                    directory, environment_key_count, created_at_ms
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO policy_rules (
+                    effect, scope, fingerprint, operation_fingerprint, source,
+                    executable, operation_class, directory, scope_root,
+                    environment_key_count, created_at_ms
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     effect.as_str(),
+                    scope.as_str(),
                     request.fingerprint,
+                    request.operation_fingerprint,
                     request.source,
                     request.executable,
                     request.operation_class,
-                    request.directory,
+                    request.directory_text,
+                    scope_root_text,
                     request.environment_keys.len() as i64,
                     created_at_ms,
                 ],
             )
             .map_err(|error| format!("failed to persist policy rule: {error}"))?;
 
-        self.connection
-            .query_row(
-                "SELECT id FROM policy_rules WHERE effect = ?1 AND fingerprint = ?2",
-                params![effect.as_str(), request.fingerprint],
-                |row| row.get(0),
-            )
-            .map_err(|error| format!("failed to resolve persistent policy rule id: {error}"))
+        let id = self.connection.last_insert_rowid();
+        self.find(id)?
+            .ok_or_else(|| "persistent policy rule was inserted but could not be reloaded".to_string())
     }
 
-    fn matching_rule(
-        &self,
-        effect: PolicyEffect,
-        fingerprint: &str,
-    ) -> Result<Option<PolicyRuleView>, String> {
-        self.connection
-            .query_row(
-                "SELECT id, effect, source, executable, operation_class, directory,
-                        environment_key_count, created_at_ms
-                 FROM policy_rules
-                 WHERE effect = ?1 AND fingerprint = ?2
-                 ORDER BY id ASC
-                 LIMIT 1",
-                params![effect.as_str(), fingerprint],
-                |row| persistent_rule_view(row),
-            )
-            .optional()
-            .map_err(|error| format!("failed to match persistent policy rule: {error}"))
+    fn find(&self, id: i64) -> Result<Option<PersistentRule>, String> {
+        self.list()
+            .map(|rules| rules.into_iter().find(|rule| rule.id == id))
     }
 
-    fn list(&self) -> Result<Vec<PolicyRuleView>, String> {
+    fn list(&self) -> Result<Vec<PersistentRule>, String> {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT id, effect, source, executable, operation_class, directory,
+                "SELECT id, effect, scope, fingerprint, operation_fingerprint, source,
+                        executable, operation_class, directory, scope_root,
                         environment_key_count, created_at_ms
                  FROM policy_rules
                  ORDER BY id ASC",
@@ -282,11 +388,73 @@ impl PersistentRuleStore {
             .map_err(|error| format!("failed to prepare policy rule list: {error}"))?;
 
         let rows = statement
-            .query_map([], persistent_rule_view)
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                ))
+            })
             .map_err(|error| format!("failed to list persistent policy rules: {error}"))?;
 
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("failed to decode persistent policy rule: {error}"))
+        let mut rules = Vec::new();
+        for row in rows {
+            let (
+                id,
+                effect,
+                scope,
+                fingerprint,
+                operation_fingerprint,
+                source,
+                executable,
+                operation_class,
+                directory,
+                scope_root,
+                environment_key_count,
+                created_at_ms,
+            ) = row.map_err(|error| format!("failed to decode persistent policy rule: {error}"))?;
+
+            rules.push(PersistentRule {
+                id,
+                effect: PolicyEffect::parse(&effect)?,
+                scope: ApprovalScope::parse(&scope)?,
+                fingerprint,
+                operation_fingerprint,
+                source,
+                executable,
+                operation_class,
+                directory,
+                scope_root,
+                environment_key_count: environment_key_count.max(0) as usize,
+                created_at_ms: created_at_ms.max(0) as u64,
+            });
+        }
+
+        Ok(rules)
+    }
+
+    fn matching(
+        &self,
+        effect: PolicyEffect,
+        request: &NormalizedPolicyRequest,
+    ) -> Result<Vec<PersistentRule>, String> {
+        let mut matching = self
+            .list()?
+            .into_iter()
+            .filter(|rule| rule.effect == effect && persistent_rule_matches(rule, request))
+            .collect::<Vec<_>>();
+
+        matching.sort_by_key(|rule| persistent_scope_priority(rule.scope));
+        Ok(matching)
     }
 
     fn revoke(&self, id: i64) -> Result<bool, String> {
@@ -304,59 +472,233 @@ impl PersistentRuleStore {
     }
 }
 
-fn persistent_rule_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<PolicyRuleView> {
-    let id: i64 = row.get(0)?;
-    let effect: String = row.get(1)?;
-    let environment_key_count: i64 = row.get(6)?;
-    let created_at_ms: i64 = row.get(7)?;
+fn initialize_schema(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "
+            PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
+            ",
+        )
+        .map_err(|error| format!("failed to initialize policy database pragmas: {error}"))?;
 
-    Ok(PolicyRuleView {
-        id: format!("persistent-{id}"),
-        effect: PolicyEffect::parse(&effect).unwrap_or(PolicyEffect::Deny),
-        persistence: "persistent".to_string(),
-        source: row.get(2)?,
-        session_id: None,
-        executable: row.get(3)?,
-        operation_class: row.get(4)?,
-        directory: row.get(5)?,
-        environment_key_count: environment_key_count.max(0) as usize,
-        created_at_ms: created_at_ms.max(0) as u64,
-    })
+    let has_table: bool = connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'policy_rules'
+            )",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("failed to inspect policy database: {error}"))?;
+
+    if !has_table {
+        create_current_schema(connection)?;
+        return Ok(());
+    }
+
+    let mut statement = connection
+        .prepare("PRAGMA table_info(policy_rules)")
+        .map_err(|error| format!("failed to inspect policy schema: {error}"))?;
+    let column_rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("failed to read policy schema: {error}"))?;
+    let columns = column_rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to decode policy schema: {error}"))?;
+
+    if columns.iter().any(|column| column == "scope") {
+        return Ok(());
+    }
+
+    connection
+        .execute_batch(
+            "
+            BEGIN IMMEDIATE;
+            ALTER TABLE policy_rules RENAME TO policy_rules_legacy;
+            CREATE TABLE policy_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                effect TEXT NOT NULL CHECK(effect IN ('allow', 'deny')),
+                scope TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                operation_fingerprint TEXT NULL,
+                source TEXT NOT NULL,
+                executable TEXT NOT NULL,
+                operation_class TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                scope_root TEXT NULL,
+                environment_key_count INTEGER NOT NULL,
+                created_at_ms INTEGER NOT NULL
+            );
+            INSERT INTO policy_rules (
+                id, effect, scope, fingerprint, operation_fingerprint, source,
+                executable, operation_class, directory, scope_root,
+                environment_key_count, created_at_ms
+            )
+            SELECT
+                id, effect, 'exact_request', fingerprint, NULL, source,
+                executable, operation_class, directory, directory,
+                environment_key_count, created_at_ms
+            FROM policy_rules_legacy;
+            DROP TABLE policy_rules_legacy;
+            CREATE INDEX idx_policy_rules_fingerprint
+                ON policy_rules(effect, fingerprint);
+            CREATE INDEX idx_policy_rules_operation
+                ON policy_rules(effect, operation_fingerprint, scope);
+            COMMIT;
+            ",
+        )
+        .map_err(|error| format!("failed to migrate policy database: {error}"))
+}
+
+fn create_current_schema(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE policy_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                effect TEXT NOT NULL CHECK(effect IN ('allow', 'deny')),
+                scope TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                operation_fingerprint TEXT NULL,
+                source TEXT NOT NULL,
+                executable TEXT NOT NULL,
+                operation_class TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                scope_root TEXT NULL,
+                environment_key_count INTEGER NOT NULL,
+                created_at_ms INTEGER NOT NULL
+            );
+            CREATE INDEX idx_policy_rules_fingerprint
+                ON policy_rules(effect, fingerprint);
+            CREATE INDEX idx_policy_rules_operation
+                ON policy_rules(effect, operation_fingerprint, scope);
+            ",
+        )
+        .map_err(|error| format!("failed to create policy database schema: {error}"))
+}
+
+fn persistent_rule_identity_matches(
+    rule: &PersistentRule,
+    effect: PolicyEffect,
+    scope: ApprovalScope,
+    request: &NormalizedPolicyRequest,
+    scope_root: Option<&str>,
+) -> bool {
+    rule.effect == effect
+        && rule.scope == scope
+        && rule.fingerprint == request.fingerprint
+        && rule.operation_fingerprint.as_deref() == Some(request.operation_fingerprint.as_str())
+        && rule.scope_root.as_deref() == scope_root
+}
+
+fn persistent_rule_matches(rule: &PersistentRule, request: &NormalizedPolicyRequest) -> bool {
+    match rule.scope {
+        ApprovalScope::ExactRequest | ApprovalScope::Deny => rule.fingerprint == request.fingerprint,
+        ApprovalScope::ExactDirectory => {
+            rule.operation_fingerprint.as_deref() == Some(request.operation_fingerprint.as_str())
+                && rule
+                    .scope_root
+                    .as_deref()
+                    .is_some_and(|root| path_equals_stored_root(&request.directory, root))
+        }
+        ApprovalScope::DirectoryTree => {
+            rule.operation_fingerprint.as_deref() == Some(request.operation_fingerprint.as_str())
+                && rule
+                    .scope_root
+                    .as_deref()
+                    .is_some_and(|root| path_within_stored_root(&request.directory, root))
+        }
+        ApprovalScope::Always => {
+            rule.operation_fingerprint.as_deref() == Some(request.operation_fingerprint.as_str())
+        }
+        ApprovalScope::Once | ApprovalScope::Session => false,
+    }
+}
+
+fn path_equals_stored_root(request_directory: &Path, stored_root: &str) -> bool {
+    request_directory == Path::new(stored_root)
+}
+
+fn path_within_stored_root(request_directory: &Path, stored_root: &str) -> bool {
+    request_directory.starts_with(Path::new(stored_root))
+}
+
+fn persistent_scope_priority(scope: ApprovalScope) -> u8 {
+    match scope {
+        ApprovalScope::Deny => 0,
+        ApprovalScope::ExactRequest => 1,
+        ApprovalScope::ExactDirectory => 2,
+        ApprovalScope::DirectoryTree => 3,
+        ApprovalScope::Always => 4,
+        ApprovalScope::Once => 5,
+        ApprovalScope::Session => 6,
+    }
 }
 
 struct PolicyEngine {
     persistent: PersistentRuleStore,
-    sessions: Vec<SessionRule>,
-    next_session_rule_id: u64,
+    ephemeral: Vec<EphemeralRule>,
+    next_ephemeral_rule_id: u64,
 }
 
 impl PolicyEngine {
     fn open(path: &Path) -> Result<Self, String> {
         Ok(Self {
             persistent: PersistentRuleStore::open(path)?,
-            sessions: Vec::new(),
-            next_session_rule_id: 1,
+            ephemeral: Vec::new(),
+            next_ephemeral_rule_id: 1,
         })
     }
 
-    fn decide(&self, request: &NormalizedPolicyRequest) -> Result<PolicyDecision, String> {
-        if let Some(rule) = self.match_session(PolicyEffect::Deny, request) {
-            return Ok(decision_for_rule(PolicyOutcome::Deny, &rule));
+    fn decide(&mut self, request: &NormalizedPolicyRequest) -> Result<PolicyDecision, String> {
+        if let Some(rule) = self
+            .ephemeral
+            .iter()
+            .find(|rule| ephemeral_rule_matches(rule, PolicyEffect::Deny, request))
+            .cloned()
+        {
+            return Ok(decision_for_rule(PolicyOutcome::Deny, &ephemeral_rule_view(&rule)));
         }
+
         if let Some(rule) = self
             .persistent
-            .matching_rule(PolicyEffect::Deny, &request.fingerprint)?
+            .matching(PolicyEffect::Deny, request)?
+            .into_iter()
+            .next()
         {
-            return Ok(decision_for_rule(PolicyOutcome::Deny, &rule));
+            return Ok(decision_for_rule(PolicyOutcome::Deny, &persistent_rule_view(&rule)));
         }
-        if let Some(rule) = self.match_session(PolicyEffect::Allow, request) {
-            return Ok(decision_for_rule(PolicyOutcome::Allow, &rule));
+
+        if let Some(index) = self.ephemeral.iter().position(|rule| {
+            rule.effect == PolicyEffect::Allow
+                && rule.scope == ApprovalScope::Once
+                && ephemeral_request_matches(rule, request)
+        }) {
+            let rule = self.ephemeral.remove(index);
+            return Ok(decision_for_rule(PolicyOutcome::Allow, &ephemeral_rule_view(&rule)));
         }
+
+        if let Some(rule) = self
+            .ephemeral
+            .iter()
+            .find(|rule| {
+                rule.effect == PolicyEffect::Allow
+                    && rule.scope == ApprovalScope::Session
+                    && ephemeral_request_matches(rule, request)
+            })
+            .cloned()
+        {
+            return Ok(decision_for_rule(PolicyOutcome::Allow, &ephemeral_rule_view(&rule)));
+        }
+
         if let Some(rule) = self
             .persistent
-            .matching_rule(PolicyEffect::Allow, &request.fingerprint)?
+            .matching(PolicyEffect::Allow, request)?
+            .into_iter()
+            .next()
         {
-            return Ok(decision_for_rule(PolicyOutcome::Allow, &rule));
+            return Ok(decision_for_rule(PolicyOutcome::Allow, &persistent_rule_view(&rule)));
         }
 
         Ok(PolicyDecision {
@@ -367,76 +709,138 @@ impl PolicyEngine {
         })
     }
 
-    fn grant_session(
+    fn grant_scope(
+        &mut self,
+        scope: ApprovalScope,
+        request: &NormalizedPolicyRequest,
+        risk_policy_allows_always: bool,
+    ) -> Result<PolicyRuleView, String> {
+        match scope {
+            ApprovalScope::Once => self.grant_ephemeral(PolicyEffect::Allow, scope, request, false),
+            ApprovalScope::Session => {
+                self.grant_ephemeral(PolicyEffect::Allow, scope, request, true)
+            }
+            ApprovalScope::ExactRequest => self.grant_persistent(
+                PolicyEffect::Allow,
+                ApprovalScope::ExactRequest,
+                request,
+                Some(&request.directory),
+            ),
+            ApprovalScope::ExactDirectory => self.grant_persistent(
+                PolicyEffect::Allow,
+                scope,
+                request,
+                Some(&request.directory),
+            ),
+            ApprovalScope::DirectoryTree => self.grant_persistent(
+                PolicyEffect::Allow,
+                scope,
+                request,
+                Some(&request.directory),
+            ),
+            ApprovalScope::Always => {
+                if !risk_policy_allows_always {
+                    return Err(
+                        "always-allow scope requires an explicit positive risk-policy decision"
+                            .to_string(),
+                    );
+                }
+                self.grant_persistent(PolicyEffect::Allow, scope, request, None)
+            }
+            ApprovalScope::Deny => {
+                self.grant_persistent(PolicyEffect::Deny, scope, request, Some(&request.directory))
+            }
+        }
+    }
+
+    fn grant_ephemeral(
         &mut self,
         effect: PolicyEffect,
+        scope: ApprovalScope,
         request: &NormalizedPolicyRequest,
+        require_session: bool,
     ) -> Result<PolicyRuleView, String> {
-        let session_id = request
-            .session_id
-            .clone()
-            .ok_or_else(|| "session-scoped permission requires a session id".to_string())?;
+        if !matches!(scope, ApprovalScope::Once | ApprovalScope::Session | ApprovalScope::Deny) {
+            return Err(format!("scope {} is not ephemeral", scope.as_str()));
+        }
+
+        if require_session && request.session_id.is_none() {
+            return Err("session-scoped permission requires a session id".to_string());
+        }
 
         if let Some(existing) = self
-            .sessions
+            .ephemeral
             .iter()
             .find(|rule| {
                 rule.effect == effect
-                    && rule.session_id == session_id
+                    && rule.scope == scope
+                    && rule.session_id == request.session_id
                     && rule.fingerprint == request.fingerprint
             })
             .cloned()
         {
-            return Ok(session_rule_view(&existing));
+            return Ok(ephemeral_rule_view(&existing));
         }
 
-        let rule = SessionRule {
-            id: self.next_session_rule_id,
+        let rule = EphemeralRule {
+            id: self.next_ephemeral_rule_id,
             effect,
-            session_id,
+            scope,
+            session_id: request.session_id.clone(),
             fingerprint: request.fingerprint.clone(),
             source: request.source.clone(),
             executable: request.executable.clone(),
             operation_class: request.operation_class.clone(),
-            directory: request.directory.clone(),
+            directory: request.directory_text.clone(),
             environment_key_count: request.environment_keys.len(),
             created_at_ms: now_ms(),
         };
-        self.next_session_rule_id += 1;
-        let view = session_rule_view(&rule);
-        self.sessions.push(rule);
+        self.next_ephemeral_rule_id += 1;
+        let view = ephemeral_rule_view(&rule);
+        self.ephemeral.push(rule);
         Ok(view)
     }
 
     fn grant_persistent(
         &self,
         effect: PolicyEffect,
+        scope: ApprovalScope,
         request: &NormalizedPolicyRequest,
+        scope_root: Option<&Path>,
     ) -> Result<PolicyRuleView, String> {
-        let id = self.persistent.insert(effect, request)?;
         self.persistent
-            .list()?
-            .into_iter()
-            .find(|rule| rule.id == format!("persistent-{id}"))
-            .ok_or_else(|| "persistent policy rule was inserted but could not be reloaded".to_string())
+            .insert(effect, scope, request, scope_root)
+            .map(|rule| persistent_rule_view(&rule))
     }
 
     fn list(&self) -> Result<Vec<PolicyRuleView>, String> {
-        let mut rules: Vec<PolicyRuleView> =
-            self.sessions.iter().map(session_rule_view).collect();
-        rules.extend(self.persistent.list()?);
-        rules.sort_by(|left, right| left.created_at_ms.cmp(&right.created_at_ms).then(left.id.cmp(&right.id)));
+        let mut rules = self
+            .ephemeral
+            .iter()
+            .map(ephemeral_rule_view)
+            .collect::<Vec<_>>();
+        rules.extend(
+            self.persistent
+                .list()?
+                .iter()
+                .map(persistent_rule_view),
+        );
+        rules.sort_by(|left, right| {
+            left.created_at_ms
+                .cmp(&right.created_at_ms)
+                .then(left.id.cmp(&right.id))
+        });
         Ok(rules)
     }
 
     fn revoke(&mut self, id: &str) -> Result<bool, String> {
-        if let Some(raw) = id.strip_prefix("session-") {
+        if let Some(raw) = id.strip_prefix("ephemeral-") {
             let parsed = raw
                 .parse::<u64>()
-                .map_err(|_| format!("invalid session policy rule id: {id}"))?;
-            let before = self.sessions.len();
-            self.sessions.retain(|rule| rule.id != parsed);
-            return Ok(self.sessions.len() != before);
+                .map_err(|_| format!("invalid ephemeral policy rule id: {id}"))?;
+            let before = self.ephemeral.len();
+            self.ephemeral.retain(|rule| rule.id != parsed);
+            return Ok(self.ephemeral.len() != before);
         }
 
         if let Some(raw) = id.strip_prefix("persistent-") {
@@ -450,49 +854,68 @@ impl PolicyEngine {
     }
 
     fn reset_session(&mut self, session_id: &str) -> usize {
-        let before = self.sessions.len();
-        self.sessions.retain(|rule| rule.session_id != session_id);
-        before - self.sessions.len()
+        let before = self.ephemeral.len();
+        self.ephemeral
+            .retain(|rule| rule.session_id.as_deref() != Some(session_id));
+        before - self.ephemeral.len()
     }
 
     fn reset_all_sessions(&mut self) -> usize {
-        let removed = self.sessions.len();
-        self.sessions.clear();
+        let removed = self.ephemeral.len();
+        self.ephemeral.clear();
         removed
     }
 
     fn reset_persistent(&self) -> Result<usize, String> {
         self.persistent.reset()
     }
-
-    fn match_session(
-        &self,
-        effect: PolicyEffect,
-        request: &NormalizedPolicyRequest,
-    ) -> Option<PolicyRuleView> {
-        let session_id = request.session_id.as_deref()?;
-        self.sessions
-            .iter()
-            .filter(|rule| {
-                rule.effect == effect
-                    && rule.session_id == session_id
-                    && rule.fingerprint == request.fingerprint
-            })
-            .min_by_key(|rule| rule.id)
-            .map(session_rule_view)
-    }
 }
 
-fn session_rule_view(rule: &SessionRule) -> PolicyRuleView {
+fn ephemeral_rule_matches(
+    rule: &EphemeralRule,
+    effect: PolicyEffect,
+    request: &NormalizedPolicyRequest,
+) -> bool {
+    rule.effect == effect && ephemeral_request_matches(rule, request)
+}
+
+fn ephemeral_request_matches(rule: &EphemeralRule, request: &NormalizedPolicyRequest) -> bool {
+    rule.fingerprint == request.fingerprint
+        && rule
+            .session_id
+            .as_ref()
+            .is_none_or(|session_id| request.session_id.as_ref() == Some(session_id))
+}
+
+fn ephemeral_rule_view(rule: &EphemeralRule) -> PolicyRuleView {
     PolicyRuleView {
-        id: format!("session-{}", rule.id),
+        id: format!("ephemeral-{}", rule.id),
         effect: rule.effect,
-        persistence: "session".to_string(),
+        scope: rule.scope,
+        persistence: "ephemeral".to_string(),
         source: rule.source.clone(),
-        session_id: Some(rule.session_id.clone()),
+        session_id: rule.session_id.clone(),
         executable: rule.executable.clone(),
         operation_class: rule.operation_class.clone(),
         directory: rule.directory.clone(),
+        scope_root: Some(rule.directory.clone()),
+        environment_key_count: rule.environment_key_count,
+        created_at_ms: rule.created_at_ms,
+    }
+}
+
+fn persistent_rule_view(rule: &PersistentRule) -> PolicyRuleView {
+    PolicyRuleView {
+        id: format!("persistent-{}", rule.id),
+        effect: rule.effect,
+        scope: rule.scope,
+        persistence: "persistent".to_string(),
+        source: rule.source.clone(),
+        session_id: None,
+        executable: rule.executable.clone(),
+        operation_class: rule.operation_class.clone(),
+        directory: rule.directory.clone(),
+        scope_root: rule.scope_root.clone(),
         environment_key_count: rule.environment_key_count,
         created_at_ms: rule.created_at_ms,
     }
@@ -503,12 +926,12 @@ fn decision_for_rule(outcome: PolicyOutcome, rule: &PolicyRuleView) -> PolicyDec
         outcome,
         rule_id: Some(rule.id.clone()),
         reason: format!(
-            "Matched {} {} rule {} for {} in {}.",
+            "Matched {} {} {} rule {} for {}.",
             rule.persistence,
+            rule.scope.as_str(),
             rule.effect.as_str(),
             rule.id,
-            rule.executable,
-            rule.directory
+            rule.executable
         ),
     }
 }
@@ -533,11 +956,25 @@ impl PolicyState {
 
     pub fn decide(&self, input: PolicyRequestInput) -> Result<PolicyDecision, String> {
         let request = NormalizedPolicyRequest::from_input(input)?;
-        let engine = self.engine();
+        let mut engine = self.engine();
         engine
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "policy engine is not initialized".to_string())?
             .decide(&request)
+    }
+
+    pub fn grant_scope(
+        &self,
+        scope: ApprovalScope,
+        input: PolicyRequestInput,
+        risk_policy_allows_always: bool,
+    ) -> Result<PolicyRuleView, String> {
+        let request = NormalizedPolicyRequest::from_input(input)?;
+        let mut engine = self.engine();
+        engine
+            .as_mut()
+            .ok_or_else(|| "policy engine is not initialized".to_string())?
+            .grant_scope(scope, &request, risk_policy_allows_always)
     }
 
     pub fn grant_session(
@@ -547,10 +984,18 @@ impl PolicyState {
     ) -> Result<PolicyRuleView, String> {
         let request = NormalizedPolicyRequest::from_input(input)?;
         let mut engine = self.engine();
-        engine
+        let engine = engine
             .as_mut()
-            .ok_or_else(|| "policy engine is not initialized".to_string())?
-            .grant_session(effect, &request)
+            .ok_or_else(|| "policy engine is not initialized".to_string())?;
+
+        match effect {
+            PolicyEffect::Allow => {
+                engine.grant_ephemeral(effect, ApprovalScope::Session, &request, true)
+            }
+            PolicyEffect::Deny => {
+                engine.grant_ephemeral(effect, ApprovalScope::Deny, &request, true)
+            }
+        }
     }
 
     pub fn grant_persistent(
@@ -560,10 +1005,24 @@ impl PolicyState {
     ) -> Result<PolicyRuleView, String> {
         let request = NormalizedPolicyRequest::from_input(input)?;
         let engine = self.engine();
-        engine
+        let engine = engine
             .as_ref()
-            .ok_or_else(|| "policy engine is not initialized".to_string())?
-            .grant_persistent(effect, &request)
+            .ok_or_else(|| "policy engine is not initialized".to_string())?;
+
+        match effect {
+            PolicyEffect::Allow => engine.grant_persistent(
+                effect,
+                ApprovalScope::ExactRequest,
+                &request,
+                Some(&request.directory),
+            ),
+            PolicyEffect::Deny => engine.grant_persistent(
+                effect,
+                ApprovalScope::Deny,
+                &request,
+                Some(&request.directory),
+            ),
+        }
     }
 
     pub fn list(&self) -> Result<Vec<PolicyRuleView>, String> {
@@ -617,187 +1076,455 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        PolicyEffect, PolicyOutcome, PolicyRequestInput, PolicyState,
+        ApprovalScope, PolicyEffect, PolicyOutcome, PolicyRequestInput, PolicyState,
     };
     use std::{
         fs,
-        path::PathBuf,
-        process,
+        path::{Path, PathBuf},
+        process::{self, Command},
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    fn test_directory() -> PathBuf {
-        std::env::current_dir().expect("test current directory")
-    }
-
-    fn database_path(name: &str) -> PathBuf {
+    fn unique_root(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "shellwarden-policy-{name}-{}-{nonce}.sqlite3",
+            "shellwarden-scope-{name}-{}-{nonce}",
             process::id()
         ))
     }
 
-    fn request(session_id: Option<&str>) -> PolicyRequestInput {
+    fn database_path(root: &Path) -> PathBuf {
+        root.join("permissions.sqlite3")
+    }
+
+    fn request(directory: &Path, session_id: Option<&str>, arg: &str) -> PolicyRequestInput {
         PolicyRequestInput {
             source: "test-client".to_string(),
             session_id: session_id.map(str::to_string),
-            command: vec!["git".to_string(), "status".to_string()],
+            command: vec!["git".to_string(), arg.to_string()],
             operation_class: "read".to_string(),
-            directory: test_directory().to_string_lossy().to_string(),
+            directory: directory.to_string_lossy().to_string(),
             environment_keys: vec!["PATH".to_string()],
         }
     }
 
-    #[test]
-    fn unknown_request_defaults_to_ask_and_session_grant_disappears() {
-        let path = database_path("session");
-        let state = PolicyState::default();
-        state.initialize(&path).expect("initialize policy");
+    fn setup(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let root = unique_root(name);
+        let repo = root.join("repo");
+        let child = repo.join("child");
+        let sibling = root.join("sibling");
+        fs::create_dir_all(&child).expect("child");
+        fs::create_dir_all(&sibling).expect("sibling");
+        (root, repo, child, sibling)
+    }
 
-        let unknown = state.decide(request(Some("session-a"))).expect("decide");
-        assert_eq!(unknown.outcome, PolicyOutcome::Ask);
+    #[test]
+    fn once_grant_is_consumed_only_by_the_intended_request() {
+        let (root, repo, _, _) = setup("once");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
 
         state
-            .grant_session(PolicyEffect::Allow, request(Some("session-a")))
-            .expect("grant session allow");
+            .grant_scope(
+                ApprovalScope::Once,
+                request(&repo, Some("session-a"), "status"),
+                false,
+            )
+            .expect("once grant");
+
         assert_eq!(
             state
-                .decide(request(Some("session-a")))
-                .expect("decide allowed")
+                .decide(request(&repo, Some("session-a"), "diff"))
+                .expect("different argv")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+        assert_eq!(
+            state
+                .decide(request(&repo, Some("session-a"), "status"))
+                .expect("first intended request")
                 .outcome,
             PolicyOutcome::Allow
         );
         assert_eq!(
             state
-                .decide(request(Some("session-b")))
+                .decide(request(&repo, Some("session-a"), "status"))
+                .expect("consumed")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_grant_is_bound_to_session_and_exact_request() {
+        let (root, repo, _, _) = setup("session");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        state
+            .grant_scope(
+                ApprovalScope::Session,
+                request(&repo, Some("session-a"), "status"),
+                false,
+            )
+            .expect("session grant");
+
+        assert_eq!(
+            state
+                .decide(request(&repo, Some("session-a"), "status"))
+                .expect("same")
+                .outcome,
+            PolicyOutcome::Allow
+        );
+        assert_eq!(
+            state
+                .decide(request(&repo, Some("session-b"), "status"))
                 .expect("different session")
                 .outcome,
             PolicyOutcome::Ask
         );
 
-        drop(state);
+        let _ = fs::remove_dir_all(root);
+    }
 
-        let restarted = PolicyState::default();
-        restarted.initialize(&path).expect("reinitialize policy");
+    #[test]
+    fn exact_directory_does_not_authorize_child_or_sibling() {
+        let (root, repo, child, sibling) = setup("exact");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        state
+            .grant_scope(
+                ApprovalScope::ExactDirectory,
+                request(&repo, Some("session-a"), "status"),
+                false,
+            )
+            .expect("exact directory grant");
+
         assert_eq!(
-            restarted
-                .decide(request(Some("session-a")))
-                .expect("session grant must be gone")
+            state
+                .decide(request(&repo, Some("session-b"), "status"))
+                .expect("root")
+                .outcome,
+            PolicyOutcome::Allow
+        );
+        assert_eq!(
+            state
+                .decide(request(&child, Some("session-b"), "status"))
+                .expect("child")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+        assert_eq!(
+            state
+                .decide(request(&sibling, Some("session-b"), "status"))
+                .expect("sibling")
                 .outcome,
             PolicyOutcome::Ask
         );
 
-        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn persistent_allow_survives_restart_without_storing_argv() {
-        let path = database_path("persistent");
+    fn directory_tree_authorizes_descendants_but_not_siblings_or_traversal() {
+        let (root, repo, child, sibling) = setup("tree");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        state
+            .grant_scope(
+                ApprovalScope::DirectoryTree,
+                request(&repo, None, "status"),
+                false,
+            )
+            .expect("tree grant");
+
+        assert_eq!(
+            state.decide(request(&child, None, "status")).expect("child").outcome,
+            PolicyOutcome::Allow
+        );
+        assert_eq!(
+            state
+                .decide(request(&sibling, None, "status"))
+                .expect("sibling")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let traversal = child.join("..").join("..").join("sibling");
+        assert_eq!(
+            state
+                .decide(request(&traversal, None, "status"))
+                .expect("traversal")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_grant_does_not_follow_symlink_outside_canonical_root() {
+        use std::os::unix::fs::symlink;
+
+        let (root, repo, _, sibling) = setup("symlink");
+        let outside_child = sibling.join("outside-child");
+        fs::create_dir_all(&outside_child).expect("outside child");
+        let link = repo.join("escape");
+        symlink(&sibling, &link).expect("symlink");
+
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+        state
+            .grant_scope(
+                ApprovalScope::DirectoryTree,
+                request(&repo, None, "status"),
+                false,
+            )
+            .expect("tree grant");
+
+        assert_eq!(
+            state
+                .decide(request(&link.join("outside-child"), None, "status"))
+                .expect("symlink escape")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tree_grant_does_not_follow_junction_outside_canonical_root() {
+        let (root, repo, _, sibling) = setup("junction");
+        let outside_child = sibling.join("outside-child");
+        fs::create_dir_all(&outside_child).expect("outside child");
+        let link = repo.join("escape");
+
+        let status = Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                link.to_str().expect("link path"),
+                sibling.to_str().expect("target path"),
+            ])
+            .status()
+            .expect("run mklink");
+        assert!(status.success(), "junction creation must succeed for path-escape coverage");
+
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+        state
+            .grant_scope(
+                ApprovalScope::DirectoryTree,
+                request(&repo, None, "status"),
+                false,
+            )
+            .expect("tree grant");
+
+        assert_eq!(
+            state
+                .decide(request(&link.join("outside-child"), None, "status"))
+                .expect("junction escape")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let _ = Command::new("cmd")
+            .args(["/C", "rmdir", link.to_str().expect("link path")])
+            .status();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn always_scope_requires_positive_risk_policy_gate() {
+        let (root, repo, _, sibling) = setup("always");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        assert!(state
+            .grant_scope(
+                ApprovalScope::Always,
+                request(&repo, None, "status"),
+                false,
+            )
+            .is_err());
+
+        state
+            .grant_scope(
+                ApprovalScope::Always,
+                request(&repo, None, "status"),
+                true,
+            )
+            .expect("risk-approved always");
+
+        assert_eq!(
+            state
+                .decide(request(&sibling, None, "status"))
+                .expect("global operation")
+                .outcome,
+            PolicyOutcome::Allow
+        );
+        assert_eq!(
+            state
+                .decide(request(&sibling, None, "diff"))
+                .expect("different argv")
+                .outcome,
+            PolicyOutcome::Ask
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deny_precedes_scoped_allow_and_revoke_invalidates_future_match() {
+        let (root, repo, child, _) = setup("deny");
+        let state = PolicyState::default();
+        state.initialize(&database_path(&root)).expect("initialize");
+
+        state
+            .grant_scope(
+                ApprovalScope::DirectoryTree,
+                request(&repo, None, "status"),
+                false,
+            )
+            .expect("tree grant");
+        let deny = state
+            .grant_scope(
+                ApprovalScope::Deny,
+                request(&child, None, "status"),
+                false,
+            )
+            .expect("deny");
+
+        assert_eq!(
+            state
+                .decide(request(&child, None, "status"))
+                .expect("deny wins")
+                .outcome,
+            PolicyOutcome::Deny
+        );
+
+        assert!(state.revoke(&deny.id).expect("revoke"));
+        assert_eq!(
+            state
+                .decide(request(&child, None, "status"))
+                .expect("tree allow returns")
+                .outcome,
+            PolicyOutcome::Allow
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn persistent_scopes_survive_restart_without_raw_argv() {
+        let (root, repo, child, _) = setup("restart");
+        let db = database_path(&root);
+
         {
             let state = PolicyState::default();
-            state.initialize(&path).expect("initialize policy");
+            state.initialize(&db).expect("initialize");
             state
-                .grant_persistent(PolicyEffect::Allow, request(Some("session-a")))
-                .expect("grant persistent allow");
+                .grant_scope(
+                    ApprovalScope::DirectoryTree,
+                    request(&repo, None, "status"),
+                    false,
+                )
+                .expect("tree grant");
         }
 
         let restarted = PolicyState::default();
-        restarted.initialize(&path).expect("reinitialize policy");
-        let decision = restarted
-            .decide(request(Some("different-session")))
-            .expect("persistent decision");
-        assert_eq!(decision.outcome, PolicyOutcome::Allow);
-        assert!(decision.rule_id.as_deref().is_some_and(|id| id.starts_with("persistent-")));
+        restarted.initialize(&db).expect("reinitialize");
+        assert_eq!(
+            restarted
+                .decide(request(&child, None, "status"))
+                .expect("persisted tree")
+                .outcome,
+            PolicyOutcome::Allow
+        );
 
-        let bytes = fs::read(&path).expect("read sqlite bytes");
-        let database_text = String::from_utf8_lossy(&bytes);
+        let database_text = String::from_utf8_lossy(&fs::read(&db).expect("read db")).to_string();
         assert!(
             !database_text.contains("status"),
-            "raw argv must not be persisted in the policy database"
+            "raw argv must not be persisted in scoped permission rules"
         );
 
-        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn deny_takes_precedence_over_allow_and_rules_are_revocable() {
-        let path = database_path("deny");
+    fn legacy_exact_rules_migrate_and_keep_exact_behavior() {
+        let (root, repo, child, _) = setup("migration");
+        let db = database_path(&root);
+        {
+            let connection = Connection::open(&db).expect("legacy db");
+            connection
+                .execute_batch(
+                    "
+                    CREATE TABLE policy_rules (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        effect TEXT NOT NULL CHECK(effect IN ('allow', 'deny')),
+                        fingerprint TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        executable TEXT NOT NULL,
+                        operation_class TEXT NOT NULL,
+                        directory TEXT NOT NULL,
+                        environment_key_count INTEGER NOT NULL,
+                        created_at_ms INTEGER NOT NULL,
+                        UNIQUE(effect, fingerprint)
+                    );
+                    ",
+                )
+                .expect("legacy schema");
+
+            let normalized =
+                NormalizedPolicyRequest::from_input(request(&repo, None, "status")).expect("normalize");
+            connection
+                .execute(
+                    "INSERT INTO policy_rules (
+                        effect, fingerprint, source, executable, operation_class,
+                        directory, environment_key_count, created_at_ms
+                     ) VALUES ('allow', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        normalized.fingerprint,
+                        normalized.source,
+                        normalized.executable,
+                        normalized.operation_class,
+                        normalized.directory_text,
+                        normalized.environment_keys.len() as i64,
+                        now_ms() as i64,
+                    ],
+                )
+                .expect("legacy row");
+        }
+
         let state = PolicyState::default();
-        state.initialize(&path).expect("initialize policy");
-
-        let allow = state
-            .grant_persistent(PolicyEffect::Allow, request(Some("session-a")))
-            .expect("persistent allow");
-        let deny = state
-            .grant_session(PolicyEffect::Deny, request(Some("session-a")))
-            .expect("session deny");
-
-        let decision = state.decide(request(Some("session-a"))).expect("decide");
-        assert_eq!(decision.outcome, PolicyOutcome::Deny);
-        assert_eq!(decision.rule_id.as_deref(), Some(deny.id.as_str()));
-
-        assert!(state.revoke(&deny.id).expect("revoke deny"));
+        state.initialize(&db).expect("migrate");
         assert_eq!(
-            state.decide(request(Some("session-a"))).expect("allow").outcome,
+            state.decide(request(&repo, None, "status")).expect("exact").outcome,
             PolicyOutcome::Allow
         );
-
-        assert!(state.revoke(&allow.id).expect("revoke allow"));
         assert_eq!(
-            state.decide(request(Some("session-a"))).expect("ask").outcome,
+            state
+                .decide(request(&child, None, "status"))
+                .expect("child remains out of scope")
+                .outcome,
             PolicyOutcome::Ask
         );
 
-        let _ = fs::remove_file(path);
-    }
+        let rules = state.list().expect("list");
+        assert_eq!(rules[0].scope, ApprovalScope::ExactRequest);
 
-    #[test]
-    fn persistent_store_exposes_metadata_without_environment_values_or_argv() {
-        let path = database_path("metadata");
-        let state = PolicyState::default();
-        state.initialize(&path).expect("initialize policy");
-        state
-            .grant_persistent(PolicyEffect::Deny, request(Some("session-a")))
-            .expect("grant persistent deny");
-
-        let rules = state.list().expect("list rules");
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].effect, PolicyEffect::Deny);
-        assert_eq!(rules[0].environment_key_count, 1);
-        assert_eq!(rules[0].executable, "git");
-
-        assert_eq!(state.reset_persistent().expect("reset persistent"), 1);
-        assert!(state.list().expect("list after reset").is_empty());
-
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
-    fn session_reset_removes_only_the_target_session() {
-        let path = database_path("reset-session");
-        let state = PolicyState::default();
-        state.initialize(&path).expect("initialize policy");
-        state
-            .grant_session(PolicyEffect::Allow, request(Some("session-a")))
-            .expect("session a");
-        state
-            .grant_session(PolicyEffect::Allow, request(Some("session-b")))
-            .expect("session b");
-
-        assert_eq!(state.reset_session("session-a").expect("reset"), 1);
-        assert_eq!(
-            state.decide(request(Some("session-a"))).expect("a").outcome,
-            PolicyOutcome::Ask
-        );
-        assert_eq!(
-            state.decide(request(Some("session-b"))).expect("b").outcome,
-            PolicyOutcome::Allow
-        );
-
-        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(root);
     }
 }
