@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Per-process stop support and Windows process-tree termination for managed helpers.
 - Positive allow/ask/deny permission engine with session-only grants, exact persistent grants/denies, rule listing/revocation/reset APIs, and a local SQLite store.
 - Scoped approvals for Once, Session, Exact Directory, Directory Tree, risk-gated Always, and Deny, including migration of earlier exact persistent rules.
+- Deterministic Low/Medium/High/Critical risk assessment with user-facing reasons and allowed approval scopes.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -37,4 +38,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Live activity retains bounded output tails rather than an unbounded in-memory terminal transcript.
 - Persistent permission matching stores SHA-256 request/operation fingerprints and non-secret metadata instead of raw argv or environment values; deny rules take precedence over allow rules.
 - Path-scoped grants use canonical resolved directories and component-aware matching so traversal, symlink, junction, and reparse-point escapes do not inherit authority from a textual path prefix.
+- General-purpose shells/eval interpreters and destructive operations are classified Critical and cannot receive persistent allow scopes; external side effects cannot receive tree/global authority.
+- Approval-scope enforcement is computed inside ShellWarden; MCP/UI clients cannot assert that an Always grant is risk-approved.
 
