@@ -152,10 +152,15 @@ impl RemoteAccessState {
 
     pub fn stop_for_exit(&self, app: &AppHandle) {
         app.state::<ProcessSupervisor>().stop(TUNNEL_PROCESS_ID);
-        let mut inner = self.inner();
-        inner.generation = inner.generation.wrapping_add(1);
-        inner.health_url = None;
-        inner.health_url_file = None;
+        let health_url_file = {
+            let mut inner = self.inner();
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.health_url = None;
+            inner.health_url_file.take()
+        };
+        if let Some(path) = health_url_file {
+            let _ = fs::remove_file(path);
+        }
     }
 
     fn start_configured(&self, app: &AppHandle) -> Result<(), String> {
@@ -283,11 +288,22 @@ fn spawn_monitor(app: AppHandle, generation: u64, health_url_file: PathBuf) {
                 return;
             }
 
+            let previous_health_url = health_url.clone();
             if health_url.is_none() {
                 health_url = fs::read_to_string(&health_url_file)
                     .ok()
                     .map(|value| value.trim().to_string())
                     .filter(|value| !value.is_empty());
+            }
+
+            if health_url != previous_health_url && health_url.is_some() {
+                app.state::<RemoteAccessState>().update_from_monitor(
+                    &app,
+                    generation,
+                    last_phase,
+                    health_url.clone(),
+                    None,
+                );
             }
 
             let ready = health_url.as_deref().is_some_and(probe_ready);
