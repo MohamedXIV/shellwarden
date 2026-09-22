@@ -18,6 +18,14 @@ v0.1 has five primary surfaces:
 
 Settings remains secondary.
 
+## Permissions management
+
+The Permissions surface lists both ephemeral/session authority and persistent rules. It supports search/filter, per-rule revoke, clearing session rules, clearing directory-scoped persistent rules, and an explicit confirmation before resetting all persistent authority. Rule cards show executable, operation class, scope/root, requester, persistence, creation time, and rule ID.
+
+## Audit management
+
+The Audit surface shows durable policy decisions and terminal executions after restart. It exposes status/outcome, duration, deterministic risk class, source, canonical cwd, execution ID, matched rule ID, and decision reason where available. Command arguments and process output are intentionally represented as redacted summaries rather than durable raw logs.
+
 ## Header
 
 Always show:
