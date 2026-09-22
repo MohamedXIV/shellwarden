@@ -3,6 +3,7 @@ mod execution_core;
 mod lifecycle;
 mod permission_policy;
 mod process_supervisor;
+mod risk_policy;
 
 use execution_activity::{ExecutionActivityState, ExecutionSnapshot};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
@@ -11,6 +12,7 @@ use permission_policy::{
     ApprovalScope, PolicyDecision, PolicyEffect, PolicyRequestInput, PolicyRuleView, PolicyState,
 };
 use process_supervisor::ProcessSupervisor;
+use risk_policy::{assess, RiskAssessment, RiskRequestInput};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -49,9 +51,13 @@ fn policy_grant_scope(
     state: tauri::State<'_, PolicyState>,
     scope: ApprovalScope,
     input: PolicyRequestInput,
-    risk_policy_allows_always: bool,
 ) -> Result<PolicyRuleView, String> {
-    state.grant_scope(scope, input, risk_policy_allows_always)
+    state.grant_scope_checked(scope, input)
+}
+
+#[tauri::command]
+fn risk_assess(input: RiskRequestInput) -> Result<RiskAssessment, String> {
+    assess(&input)
 }
 
 #[tauri::command]
@@ -168,6 +174,7 @@ pub fn run() {
             execution_activity_snapshot,
             policy_decide,
             policy_grant_scope,
+            risk_assess,
             policy_grant_session,
             policy_grant_persistent,
             policy_rules,
