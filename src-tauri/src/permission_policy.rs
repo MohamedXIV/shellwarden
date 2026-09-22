@@ -5,7 +5,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Mutex, MutexGuard,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -264,6 +267,7 @@ pub struct PolicyDecisionEvent {
     pub timestamp_ms: u64,
     pub source: String,
     pub executable: String,
+    pub argument_count: usize,
     pub operation_class: String,
     pub directory: String,
     pub outcome: PolicyOutcome,
@@ -657,6 +661,7 @@ struct PolicyEngine {
     ephemeral: Vec<EphemeralRule>,
     next_ephemeral_rule_id: u64,
     recent_decisions: VecDeque<PolicyDecisionEvent>,
+    decision_subscribers: Vec<Sender<PolicyDecisionEvent>>,
     next_decision_sequence: u64,
 }
 
@@ -667,6 +672,7 @@ impl PolicyEngine {
             ephemeral: Vec::new(),
             next_ephemeral_rule_id: 1,
             recent_decisions: VecDeque::new(),
+            decision_subscribers: Vec::new(),
             next_decision_sequence: 1,
         })
     }
@@ -678,18 +684,22 @@ impl PolicyEngine {
     ) {
         const RECENT_DECISIONS_LIMIT: usize = 20;
 
-        self.recent_decisions.push_front(PolicyDecisionEvent {
+        let event = PolicyDecisionEvent {
             sequence: self.next_decision_sequence,
             timestamp_ms: now_ms(),
             source: request.source.clone(),
             executable: request.executable.clone(),
+            argument_count: request.command.len().saturating_sub(1),
             operation_class: request.operation_class.clone(),
             directory: request.directory_text.clone(),
             outcome: decision.outcome,
             rule_id: decision.rule_id.clone(),
             reason: decision.reason.clone(),
-        });
+        };
         self.next_decision_sequence += 1;
+        self.recent_decisions.push_front(event.clone());
+        self.decision_subscribers
+            .retain(|subscriber| subscriber.send(event.clone()).is_ok());
 
         while self.recent_decisions.len() > RECENT_DECISIONS_LIMIT {
             self.recent_decisions.pop_back();
@@ -1020,6 +1030,17 @@ impl PolicyState {
             .as_ref()
             .ok_or_else(|| "policy engine is not initialized".to_string())?
             .recent_decisions())
+    }
+
+    pub fn subscribe_decisions(&self) -> Result<Receiver<PolicyDecisionEvent>, String> {
+        let (sender, receiver) = mpsc::channel();
+        let mut engine = self.engine();
+        engine
+            .as_mut()
+            .ok_or_else(|| "policy engine is not initialized".to_string())?
+            .decision_subscribers
+            .push(sender);
+        Ok(receiver)
     }
 
     pub fn record_manual_denial(
