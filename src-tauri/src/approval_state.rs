@@ -42,6 +42,7 @@ pub struct ApprovalView {
     pub expires_at_ms: Option<u64>,
     pub resolved_at_ms: Option<u64>,
     pub resolution_scope: Option<ApprovalScope>,
+    pub decision_rule_id: Option<String>,
     pub decision_reason: Option<String>,
 }
 
@@ -119,6 +120,7 @@ impl ApprovalState {
             expires_at_ms,
             resolved_at_ms: None,
             resolution_scope: None,
+            decision_rule_id: None,
             decision_reason: None,
         };
 
@@ -219,6 +221,7 @@ impl ApprovalState {
         record.view.status = status;
         record.view.resolved_at_ms = Some(resolved_at_ms);
         record.view.resolution_scope = Some(scope);
+        record.view.decision_rule_id = decision.as_ref().and_then(|value| value.rule_id.clone());
         record.view.decision_reason = decision.as_ref().map(|value| value.reason.clone());
         let view = record.view.clone();
         self.publish(&mut inner, view.clone());

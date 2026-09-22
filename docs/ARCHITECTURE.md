@@ -138,6 +138,14 @@ Every execution has a ShellWarden-generated execution ID and normalized metadata
 
 ShellWarden retains only the latest 64 KiB of stdout and 64 KiB of stderr per execution for in-memory activity snapshots. This UI retention cap is separate from the upstream execution output cap. Full unbounded terminal history is intentionally not part of the activity model.
 
+## Durable audit
+
+ShellWarden stores durable audit history in a separate local SQLite database under the application-data directory. The audit stream receives policy-decision events and terminal execution events from the same backend state machines used by the UI.
+
+Durable audit records intentionally exclude raw argv values, stdout, stderr, environment values, and approval payload copies. Command summaries retain only the executable plus the number of redacted arguments. Records may retain source, canonical cwd, operation class, decision/result status, duration, deterministic risk class, execution ID, matched rule ID, and an explainable decision reason.
+
+Terminal execution rows are deduplicated by ShellWarden execution ID. Policy decisions carry their matched rule ID when one exists. When an approval is linked to an execution, that rule ID is also attached to the execution activity record so the terminal audit row can explain which remembered authority was used.
+
 ## Process ownership
 
 Every execution launched through ShellWarden must be tracked.

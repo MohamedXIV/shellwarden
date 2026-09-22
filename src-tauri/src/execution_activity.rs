@@ -95,6 +95,7 @@ pub struct ExecutionSnapshot {
     pub stderr_tail: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    pub policy_rule_id: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
@@ -124,6 +125,7 @@ struct ExecutionRecord {
     stderr_tail: String,
     stdout_truncated: bool,
     stderr_truncated: bool,
+    policy_rule_id: Option<String>,
     created_at_ms: u64,
     updated_at_ms: u64,
 }
@@ -174,6 +176,7 @@ impl ExecutionActivityState {
             stderr_tail: String::new(),
             stdout_truncated: false,
             stderr_truncated: false,
+            policy_rule_id: None,
             created_at_ms: timestamp_ms,
             updated_at_ms: timestamp_ms,
         };
@@ -213,6 +216,20 @@ impl ExecutionActivityState {
         record.updated_at_ms = timestamp_ms;
         publish(&mut inner, event.clone());
         Ok(event)
+    }
+
+    pub fn set_policy_rule(
+        &self,
+        execution_id: &str,
+        rule_id: Option<String>,
+    ) -> Result<(), String> {
+        let mut inner = self.inner();
+        let record = inner
+            .records
+            .get_mut(execution_id)
+            .ok_or_else(|| format!("unknown execution id: {execution_id}"))?;
+        record.policy_rule_id = rule_id;
+        Ok(())
     }
 
     pub fn append_output(
@@ -270,6 +287,7 @@ impl ExecutionActivityState {
                 stderr_tail: record.stderr_tail.clone(),
                 stdout_truncated: record.stdout_truncated,
                 stderr_truncated: record.stderr_truncated,
+                policy_rule_id: record.policy_rule_id.clone(),
                 created_at_ms: record.created_at_ms,
                 updated_at_ms: record.updated_at_ms,
             })
