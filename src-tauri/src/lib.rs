@@ -1,4 +1,5 @@
 mod approval_state;
+mod audit_state;
 mod execution_activity;
 mod execution_core;
 mod lifecycle;
@@ -9,7 +10,10 @@ mod risk_policy;
 use approval_state::{
     ApprovalEvent, ApprovalResolution, ApprovalState, ApprovalStatus, ApprovalView,
 };
-use execution_activity::{ExecutionActivityState, ExecutionSnapshot, ExecutionStatus};
+use audit_state::{AuditEntry, AuditState};
+use execution_activity::{
+    ExecutionActivityState, ExecutionEvent, ExecutionSnapshot, ExecutionStatus,
+};
 use execution_core::{repository_root, ExecutionCoreState, ExecutionCoreStatus};
 use lifecycle::LifecycleState;
 use permission_policy::{
@@ -135,6 +139,21 @@ fn policy_reset_all_sessions(state: tauri::State<'_, PolicyState>) -> Result<usi
 #[tauri::command]
 fn policy_reset_persistent(state: tauri::State<'_, PolicyState>) -> Result<usize, String> {
     state.reset_persistent()
+}
+
+#[tauri::command]
+fn policy_reset_directory_scoped(
+    state: tauri::State<'_, PolicyState>,
+) -> Result<usize, String> {
+    state.reset_directory_scoped()
+}
+
+#[tauri::command]
+fn audit_entries(
+    state: tauri::State<'_, AuditState>,
+    limit: Option<usize>,
+) -> Result<Vec<AuditEntry>, String> {
+    state.list(limit.unwrap_or(500))
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -265,10 +284,11 @@ fn apply_approval_to_activity(app: &AppHandle, approval: &ApprovalView) {
         ApprovalStatus::Cancelled | ApprovalStatus::Expired => Some(ExecutionStatus::Cancelled),
     };
 
+    let activity = app.state::<ExecutionActivityState>();
+    let _ = activity.set_policy_rule(execution_id, approval.decision_rule_id.clone());
+
     if let Some(next) = next {
-        let _ = app
-            .state::<ExecutionActivityState>()
-            .transition(execution_id, next);
+        let _ = activity.transition(execution_id, next);
     }
 }
 
@@ -281,6 +301,7 @@ pub fn run() {
         .manage(ExecutionCoreState::default())
         .manage(PolicyState::default())
         .manage(ApprovalState::default())
+        .manage(AuditState::default())
         .invoke_handler(tauri::generate_handler![
             execution_core_status,
             execution_activity_snapshot,
@@ -296,7 +317,9 @@ pub fn run() {
             policy_revoke,
             policy_reset_session,
             policy_reset_all_sessions,
-            policy_reset_persistent
+            policy_reset_persistent,
+            policy_reset_directory_scoped,
+            audit_entries
         ])
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -304,13 +327,58 @@ pub fn run() {
             app.state::<PolicyState>()
                 .initialize(&policy_database)
                 .map_err(std::io::Error::other)?;
+            let audit_database = app_data_dir.join("audit.sqlite3");
+            app.state::<AuditState>()
+                .initialize(&audit_database)
+                .map_err(std::io::Error::other)?;
 
             app.state::<ExecutionCoreState>().start(&repository_root());
+
+            let policy_events = app
+                .state::<PolicyState>()
+                .subscribe_decisions()
+                .map_err(std::io::Error::other)?;
+            let policy_audit_app = app.handle().clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = policy_events.recv() {
+                    if policy_audit_app
+                        .state::<AuditState>()
+                        .record_decision(&event)
+                        .is_ok()
+                    {
+                        let _ = policy_audit_app.emit("shellwarden://audit", ());
+                    }
+                }
+            });
 
             let activity_events = app.state::<ExecutionActivityState>().subscribe();
             let activity_app = app.handle().clone();
             std::thread::spawn(move || {
                 while let Ok(event) = activity_events.recv() {
+                    if let ExecutionEvent::State {
+                        execution_id,
+                        state,
+                        ..
+                    } = &event
+                    {
+                        if state.is_terminal() {
+                            if let Some(snapshot) = activity_app
+                                .state::<ExecutionActivityState>()
+                                .snapshot()
+                                .into_iter()
+                                .find(|execution| execution.request.id == *execution_id)
+                            {
+                                if activity_app
+                                    .state::<AuditState>()
+                                    .record_execution(&snapshot)
+                                    .is_ok()
+                                {
+                                    let _ = activity_app.emit("shellwarden://audit", ());
+                                }
+                            }
+                        }
+                    }
+
                     let _ = activity_app.emit("shellwarden://execution-activity", event);
                     let _ = update_tray_attention(&activity_app);
                 }
