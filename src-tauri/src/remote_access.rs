@@ -131,7 +131,10 @@ impl RemoteAccessState {
             });
         }
 
-        self.start_configured(app)?;
+        if let Err(error) = self.start_configured(app) {
+            self.mark_error(app, error.clone());
+            return Err(error);
+        }
         Ok(self.status(app))
     }
 
@@ -167,7 +170,10 @@ impl RemoteAccessState {
         if self.inner().config.is_none() {
             return Err("remote access is not configured".to_string());
         }
-        self.start_configured(app)?;
+        if let Err(error) = self.start_configured(app) {
+            self.mark_error(app, error.clone());
+            return Err(error);
+        }
         Ok(self.status(app))
     }
 
@@ -185,13 +191,6 @@ impl RemoteAccessState {
     }
 
     fn start_configured(&self, app: &AppHandle) -> Result<(), String> {
-        let mcp_status = app.state::<McpServerState>().status();
-        let mcp_url = mcp_status.url.ok_or_else(|| {
-            mcp_status
-                .error
-                .unwrap_or_else(|| "local MCP server is not ready".to_string())
-        })?;
-
         let config = self
             .inner()
             .config
@@ -199,6 +198,13 @@ impl RemoteAccessState {
             .ok_or_else(|| "remote access is not configured".to_string())?;
 
         app.state::<ProcessSupervisor>().stop(TUNNEL_PROCESS_ID);
+
+        let mcp_status = app.state::<McpServerState>().status();
+        let mcp_url = mcp_status.url.ok_or_else(|| {
+            mcp_status
+                .error
+                .unwrap_or_else(|| "local MCP server is not ready".to_string())
+        })?;
 
         let app_data_dir = app
             .path()
@@ -257,6 +263,19 @@ impl RemoteAccessState {
 
         spawn_monitor(app.clone(), generation, health_url_file);
         Ok(())
+    }
+
+    fn mark_error(&self, app: &AppHandle, error: String) {
+        {
+            let mut inner = self.inner();
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.phase = RemoteAccessPhase::Error;
+            inner.health_url = None;
+            inner.error = Some(error);
+        }
+
+        let status = self.status(app);
+        let _ = app.emit("shellwarden://remote-access", &status);
     }
 
     fn update_from_monitor(
