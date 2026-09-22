@@ -21,6 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Broker-level stdout/stderr streaming events while retaining the pinned upstream validator/executor path.
 - Per-process stop support and Windows process-tree termination for managed helpers.
 - Positive allow/ask/deny permission engine with session-only grants, exact persistent grants/denies, rule listing/revocation/reset APIs, and a local SQLite store.
+- Scoped approvals for Once, Session, Exact Directory, Directory Tree, risk-gated Always, and Deny, including migration of earlier exact persistent rules.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.
@@ -34,5 +35,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Bootstrap execution remains local-only, accepts argv arrays rather than shell strings, exposes no per-request environment overrides, and admits only `git` before upstream validation.
 - Added a process-local Windows compatibility adapter for the pinned upstream package instead of weakening or replacing its validation path.
 - Live activity retains bounded output tails rather than an unbounded in-memory terminal transcript.
-- Persistent permission matching stores a SHA-256 request fingerprint and non-secret metadata instead of raw argv or environment values; deny rules take precedence over allow rules.
+- Persistent permission matching stores SHA-256 request/operation fingerprints and non-secret metadata instead of raw argv or environment values; deny rules take precedence over allow rules.
+- Path-scoped grants use canonical resolved directories and component-aware matching so traversal, symlink, junction, and reparse-point escapes do not inherit authority from a textual path prefix.
 
