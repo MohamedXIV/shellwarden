@@ -492,6 +492,15 @@ impl PersistentRuleStore {
             .execute("DELETE FROM policy_rules", [])
             .map_err(|error| format!("failed to reset persistent policy rules: {error}"))
     }
+
+    fn reset_directory_scoped(&self) -> Result<usize, String> {
+        self.connection
+            .execute(
+                "DELETE FROM policy_rules WHERE scope IN ('exact_directory', 'directory_tree')",
+                [],
+            )
+            .map_err(|error| format!("failed to reset directory-scoped policy rules: {error}"))
+    }
 }
 
 fn initialize_schema(connection: &Connection) -> Result<(), String> {
@@ -930,6 +939,10 @@ impl PolicyEngine {
     fn reset_persistent(&self) -> Result<usize, String> {
         self.persistent.reset()
     }
+
+    fn reset_directory_scoped(&self) -> Result<usize, String> {
+        self.persistent.reset_directory_scoped()
+    }
 }
 
 fn ephemeral_rule_matches(
@@ -1183,6 +1196,14 @@ impl PolicyState {
             .as_ref()
             .ok_or_else(|| "policy engine is not initialized".to_string())?
             .reset_persistent()
+    }
+
+    pub fn reset_directory_scoped(&self) -> Result<usize, String> {
+        let engine = self.engine();
+        engine
+            .as_ref()
+            .ok_or_else(|| "policy engine is not initialized".to_string())?
+            .reset_directory_scoped()
     }
 }
 
