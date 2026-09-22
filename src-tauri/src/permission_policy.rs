@@ -3,6 +3,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
@@ -251,6 +252,20 @@ fn hash_material<T: Serialize>(material: &T) -> Result<String, String> {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PolicyDecision {
+    pub outcome: PolicyOutcome,
+    pub rule_id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyDecisionEvent {
+    pub sequence: u64,
+    pub timestamp_ms: u64,
+    pub source: String,
+    pub executable: String,
+    pub operation_class: String,
+    pub directory: String,
     pub outcome: PolicyOutcome,
     pub rule_id: Option<String>,
     pub reason: String,
@@ -641,6 +656,8 @@ struct PolicyEngine {
     persistent: PersistentRuleStore,
     ephemeral: Vec<EphemeralRule>,
     next_ephemeral_rule_id: u64,
+    recent_decisions: VecDeque<PolicyDecisionEvent>,
+    next_decision_sequence: u64,
 }
 
 impl PolicyEngine {
@@ -649,7 +666,38 @@ impl PolicyEngine {
             persistent: PersistentRuleStore::open(path)?,
             ephemeral: Vec::new(),
             next_ephemeral_rule_id: 1,
+            recent_decisions: VecDeque::new(),
+            next_decision_sequence: 1,
         })
+    }
+
+    fn record_decision(
+        &mut self,
+        request: &NormalizedPolicyRequest,
+        decision: &PolicyDecision,
+    ) {
+        const RECENT_DECISIONS_LIMIT: usize = 20;
+
+        self.recent_decisions.push_front(PolicyDecisionEvent {
+            sequence: self.next_decision_sequence,
+            timestamp_ms: now_ms(),
+            source: request.source.clone(),
+            executable: request.executable.clone(),
+            operation_class: request.operation_class.clone(),
+            directory: request.directory_text.clone(),
+            outcome: decision.outcome,
+            rule_id: decision.rule_id.clone(),
+            reason: decision.reason.clone(),
+        });
+        self.next_decision_sequence += 1;
+
+        while self.recent_decisions.len() > RECENT_DECISIONS_LIMIT {
+            self.recent_decisions.pop_back();
+        }
+    }
+
+    fn recent_decisions(&self) -> Vec<PolicyDecisionEvent> {
+        self.recent_decisions.iter().cloned().collect()
     }
 
     fn decide(&mut self, request: &NormalizedPolicyRequest) -> Result<PolicyDecision, String> {
@@ -958,10 +1006,20 @@ impl PolicyState {
     pub fn decide(&self, input: PolicyRequestInput) -> Result<PolicyDecision, String> {
         let request = NormalizedPolicyRequest::from_input(input)?;
         let mut engine = self.engine();
-        engine
+        let engine = engine
             .as_mut()
+            .ok_or_else(|| "policy engine is not initialized".to_string())?;
+        let decision = engine.decide(&request)?;
+        engine.record_decision(&request, &decision);
+        Ok(decision)
+    }
+
+    pub fn recent_decisions(&self) -> Result<Vec<PolicyDecisionEvent>, String> {
+        let engine = self.engine();
+        Ok(engine
+            .as_ref()
             .ok_or_else(|| "policy engine is not initialized".to_string())?
-            .decide(&request)
+            .recent_decisions())
     }
 
     pub fn grant_scope_checked(
