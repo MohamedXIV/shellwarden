@@ -146,6 +146,7 @@ The OpenAI Secure MCP Tunnel is outbound-only transport into a loopback ShellWar
 
 The tunnel runtime API key is session-memory configuration and child-process environment only. ShellWarden does not persist it in SQLite, audit rows, logs, or its non-secret status API. The Settings UI never receives the key back from Rust after configuration.
 Before receiving that key, the configured tunnel executable must have the basename `tunnel-client` or `tunnel-client.exe`. This prevents accidental credential handoff to an unrelated executable while still allowing the official binary to live anywhere on disk.
+The managed tunnel child starts from a cleared environment and receives only a small Windows/process baseline (`PATH`, system root/temp/profile paths when present) plus `CONTROL_PLANE_API_KEY`. Unrelated ShellWarden/user environment variables are not inherited.
 
 Pause terminates the managed `tunnel-client` process rather than merely changing UI state. The MCP listener remains bound to `127.0.0.1`, so pausing removes remote ingress without creating a LAN-accessible endpoint.
 
