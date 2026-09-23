@@ -37,6 +37,10 @@ Always show:
 
 Connection state must never be hidden only in settings.
 
+The topbar and tray distinguish Not configured, Connecting, Connected, Paused, and Error. When configured, the main action toggles Pause/Resume directly; when unconfigured it routes the user to Settings.
+
+Settings exposes tunnel ID, runtime API key, optional `tunnel-client` binary path, the loopback MCP URL, and the tunnel health/admin URL when available. Runtime API keys are entered as passwords and are intentionally not redisplayed after submission.
+
 ## Activity blocks
 
 Each execution block should show, where known:

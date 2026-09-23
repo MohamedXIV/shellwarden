@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    process::Child,
+    process::{Child, ExitStatus},
     sync::{Mutex, MutexGuard},
 };
 
@@ -40,6 +40,26 @@ impl ProcessSupervisor {
             Err(_) => true,
         });
         children.len()
+    }
+
+    pub fn poll_exit_status(&self, id: &str) -> Result<Option<ExitStatus>, String> {
+        let mut children = self.children();
+        let Some(child) = children.get_mut(id) else {
+            return Err(format!("managed process not found: {id}"));
+        };
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                children.remove(id);
+                Ok(Some(status))
+            }
+            Ok(None) => Ok(None),
+            Err(error) => Err(format!("failed to inspect managed process '{id}': {error}")),
+        }
+    }
+
+    pub fn is_running(&self, id: &str) -> bool {
+        matches!(self.poll_exit_status(id), Ok(None))
     }
 
     pub fn stop(&self, id: &str) -> bool {

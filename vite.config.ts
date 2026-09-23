@@ -9,5 +9,14 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   define: { __SHELLWARDEN_VERSION__: JSON.stringify(version) },
-  server: { host: "127.0.0.1", port: 1420, strictPort: true },
+  server: {
+    host: "127.0.0.1",
+    port: 1420,
+    strictPort: true,
+    watch: {
+      // Tauri/Cargo own the entire Rust side. They continuously create/replace locked
+      // build artifacts and generated schemas on Windows, which Vite must never watch.
+      ignored: ["**/src-tauri/**"],
+    },
+  },
 });

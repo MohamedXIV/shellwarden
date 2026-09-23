@@ -1845,3 +1845,197 @@ button {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+
+/* Remote transport + Settings */
+
+.status-dot.remote-connected {
+  background: #5eb38f;
+  box-shadow: 0 0 0 3px rgba(94, 179, 143, 0.1);
+}
+
+.status-dot.remote-starting {
+  background: #c3a15d;
+  box-shadow: 0 0 0 3px rgba(195, 161, 93, 0.09);
+}
+
+.status-dot.remote-paused,
+.status-dot.remote-unconfigured {
+  background: #5e6872;
+}
+
+.status-dot.remote-error {
+  background: #be6969;
+  box-shadow: 0 0 0 3px rgba(190, 105, 105, 0.09);
+}
+
+.connection-chip.remote-connected {
+  color: #83c4aa;
+  border-color: #29473b;
+}
+
+.connection-chip.remote-starting {
+  color: #c8aa6e;
+  border-color: #4b4029;
+}
+
+.connection-chip.remote-error {
+  color: #d68888;
+  border-color: #503030;
+}
+
+.settings-page {
+  min-height: 100%;
+}
+
+.remote-phase {
+  padding: 7px 10px;
+  border: 1px solid #2a3036;
+  border-radius: 999px;
+  color: #79828b;
+  background: #0d1014;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.remote-phase.phase-connected {
+  border-color: #29473b;
+  color: #84c5aa;
+  background: #102019;
+}
+
+.remote-phase.phase-starting {
+  border-color: #493d27;
+  color: #c8aa70;
+  background: #201a0f;
+}
+
+.remote-phase.phase-error {
+  border-color: #4d2f2f;
+  color: #d98a8a;
+  background: #201313;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.settings-card {
+  padding: 18px;
+}
+
+.settings-card h2 {
+  margin: 5px 0 8px;
+  color: #cbd1d6;
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.settings-card > p {
+  max-width: 680px;
+  margin: 0 0 16px;
+  color: #646d76;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.settings-card label {
+  display: block;
+  margin-top: 11px;
+}
+
+.settings-card label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #717a83;
+  font-size: 9px;
+}
+
+.settings-card input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid #293037;
+  border-radius: 7px;
+  outline: none;
+  color: #c4cad0;
+  background: #090c0f;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
+.settings-card input:focus {
+  border-color: #3c6657;
+  box-shadow: 0 0 0 2px rgba(93, 168, 139, 0.08);
+}
+
+.settings-primary {
+  width: 100%;
+  margin-top: 15px;
+  padding: 10px 12px;
+  border: 1px solid #335b4b;
+  border-radius: 7px;
+  color: #c0e2d5;
+  background: #173326;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.settings-primary:hover:not(:disabled) {
+  background: #1b3d2e;
+}
+
+.settings-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.status-card dl {
+  margin: 14px 0 0;
+}
+
+.status-card dl > div {
+  padding: 10px 0;
+  border-bottom: 1px solid #20262b;
+}
+
+.status-card dl > div:last-child {
+  border-bottom: 0;
+}
+
+.status-card dt {
+  color: #555e67;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.status-card dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: #8d969f;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.settings-note {
+  margin-top: 16px !important;
+  padding: 11px;
+  border: 1px solid #28332e;
+  border-radius: 7px;
+  color: #71817a !important;
+  background: #0d1512;
+}
+
+@media (max-width: 900px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}

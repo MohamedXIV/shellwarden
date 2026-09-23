@@ -252,6 +252,27 @@ impl ApprovalState {
         Ok(view)
     }
 
+    pub fn cancel_pending_by_source(&self, source: &str, reason: &str) -> usize {
+        let mut inner = self.inner();
+        let timestamp_ms = now_ms();
+        let mut changed = Vec::new();
+
+        for record in &mut inner.records {
+            if record.view.status == ApprovalStatus::Pending && record.view.source == source {
+                record.view.status = ApprovalStatus::Cancelled;
+                record.view.resolved_at_ms = Some(timestamp_ms);
+                record.view.decision_reason = Some(reason.to_string());
+                changed.push(record.view.clone());
+            }
+        }
+
+        let count = changed.len();
+        for approval in changed {
+            self.publish(&mut inner, approval);
+        }
+        count
+    }
+
     pub fn subscribe(&self) -> Receiver<ApprovalEvent> {
         let (sender, receiver) = mpsc::channel();
         self.inner().subscribers.push(sender);
@@ -419,6 +440,54 @@ mod tests {
         assert_eq!(
             policy.decide(input).expect("future request").outcome,
             PolicyOutcome::Ask
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cancel_pending_by_source_only_revokes_matching_requester() {
+        let root = unique_root("cancel-source");
+        let approvals = ApprovalState::default();
+
+        let mut remote_input = request(&root, &["git", "status"]);
+        remote_input.source = "openai-secure-mcp-tunnel".to_string();
+        let remote = approvals
+            .request(remote_input, Some("exec-remote".to_string()), None)
+            .expect("remote approval");
+
+        let local = approvals
+            .request(
+                request(&root, &["git", "diff"]),
+                Some("exec-local".to_string()),
+                None,
+            )
+            .expect("local approval");
+
+        assert_eq!(
+            approvals.cancel_pending_by_source(
+                "openai-secure-mcp-tunnel",
+                "Remote access was paused."
+            ),
+            1
+        );
+
+        let snapshot = approvals.snapshot();
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|approval| approval.id == remote.id)
+                .expect("remote record")
+                .status,
+            ApprovalStatus::Cancelled
+        );
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|approval| approval.id == local.id)
+                .expect("local record")
+                .status,
+            ApprovalStatus::Pending
         );
 
         let _ = fs::remove_dir_all(root);
