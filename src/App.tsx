@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { onAction } from "@tauri-apps/plugin-notification";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { AuditView, PermissionsView, type AuditEntry, type PolicyRuleView } from "./ManagementViews";
 import { APP_VERSION } from "./version";
@@ -948,49 +947,6 @@ export function App() {
     } catch (error: unknown) {
       setManagementError(error instanceof Error ? error.message : String(error));
     }
-  }, []);
-
-  useEffect(() => {
-    let unlistenNotification: (() => void) | undefined;
-
-    try {
-      onAction((notification) => {
-        void invoke("show_main_window").catch(() => {});
-        const title = notification.title?.toLowerCase() ?? "";
-        const body = notification.body?.toLowerCase() ?? "";
-        if (
-          title.includes("remote") ||
-          title.includes("tunnel") ||
-          body.includes("remote") ||
-          body.includes("tunnel")
-        ) {
-          setSection("Settings");
-        } else {
-          setSection("Approvals");
-        }
-      })
-        .then((listener) => {
-          unlistenNotification = () => {
-            if (typeof listener === "function") {
-              (listener as () => void)();
-            } else if (
-              listener &&
-              typeof (listener as { unregister?: unknown }).unregister === "function"
-            ) {
-              ((listener as { unregister: () => void }).unregister)();
-            }
-          };
-        })
-        .catch(() => {
-          // Notification listener ignored if plugin is unavailable
-        });
-    } catch {
-      // Notification plugin unavailable (e.g. standalone browser mode)
-    }
-
-    return () => {
-      unlistenNotification?.();
-    };
   }, []);
 
   useEffect(() => {
