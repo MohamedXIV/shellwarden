@@ -273,7 +273,6 @@ function ApprovalCard({
     <article
       className={critical ? "approval-card critical" : "approval-card"}
       id={`approval-${encodeURIComponent(approval.id)}`}
-      tabIndex={-1}
     >
       <div className="approval-card-header">
         <div>
@@ -1087,7 +1086,6 @@ export function App() {
     );
     if (target instanceof HTMLElement) {
       target.scrollIntoView({ behavior: "smooth", block: "center" });
-      target.focus({ preventScroll: true });
     }
   }, [approvals, focusedApprovalId, section]);
 
