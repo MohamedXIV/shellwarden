@@ -3463,7 +3463,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
- "tauri-winrt-notification",
  "tokio",
  "tokio-util",
 ]

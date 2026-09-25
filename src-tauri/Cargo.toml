@@ -25,6 +25,3 @@ tokio-util = "0.7"
 axum = { version = "0.8", features = ["http1", "tokio"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "~2.2.0"
-
-[target.'cfg(windows)'.dependencies]
-tauri-winrt-notification = "=0.7.3"
