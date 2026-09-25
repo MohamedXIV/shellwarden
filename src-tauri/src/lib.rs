@@ -264,6 +264,80 @@ fn show_main_window_ref(app: &AppHandle) {
     }
 }
 
+#[cfg(windows)]
+fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = app.config().identifier.clone();
+    let activation_app = app.clone();
+    let activation_approval_id = approval_id.to_string();
+
+    Toast::new(&app_id)
+        .title("ShellWarden — Approval Needed")
+        .text1(APPROVAL_NOTIFICATION_BODY)
+        .on_activated(move |_| {
+            let app = activation_app.clone();
+            let approval_id = activation_approval_id.clone();
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-approval", approval_id);
+            });
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = app.config().identifier.clone();
+    let activation_app = app.clone();
+
+    Toast::new(&app_id)
+        .title("ShellWarden — Remote Access Error")
+        .text1(REMOTE_ERROR_NOTIFICATION_BODY)
+        .on_activated(move |_| {
+            let app = activation_app.clone();
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-settings", ());
+            });
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+fn show_approval_notification(app: &AppHandle, approval_id: &str) {
+    #[cfg(windows)]
+    if show_windows_approval_notification(app, approval_id).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Approval Needed")
+        .body(APPROVAL_NOTIFICATION_BODY)
+        .show();
+}
+
+fn show_remote_error_notification(app: &AppHandle) {
+    #[cfg(windows)]
+    if show_windows_remote_error_notification(app).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Remote Access Error")
+        .body(REMOTE_ERROR_NOTIFICATION_BODY)
+        .show();
+}
+
 fn running_execution_count(app: &AppHandle) -> usize {
     app.state::<ExecutionActivityState>()
         .snapshot()
@@ -536,12 +610,7 @@ pub fn run() {
                             if approval.status == ApprovalStatus::Pending {
                                 let tracker = approval_app.state::<NotificationTracker>();
                                 if tracker.should_notify_approval(&approval.id) {
-                                    let _ = approval_app
-                                        .notification()
-                                        .builder()
-                                        .title("ShellWarden — Approval Needed")
-                                        .body(APPROVAL_NOTIFICATION_BODY)
-                                        .show();
+                                    show_approval_notification(&approval_app, &approval.id);
                                 }
                                 if let Some(window) =
                                     approval_app.get_webview_window(MAIN_WINDOW_LABEL)
@@ -570,12 +639,7 @@ pub fn run() {
                 let status = remote_app.state::<RemoteAccessState>().status(&remote_app);
                 let tracker = remote_app.state::<NotificationTracker>();
                 if tracker.should_notify_remote_error(status.phase, status.error.as_deref()) {
-                    let _ = remote_app
-                        .notification()
-                        .builder()
-                        .title("ShellWarden — Remote Access Error")
-                        .body(REMOTE_ERROR_NOTIFICATION_BODY)
-                        .show();
+                    show_remote_error_notification(&remote_app);
                 }
                 let _ = update_tray_attention(&remote_app);
             });

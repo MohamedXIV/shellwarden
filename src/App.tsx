@@ -270,7 +270,11 @@ function ApprovalCard({
     approval.expiresAtMs == null ? null : Math.max(0, approval.expiresAtMs - now);
 
   return (
-    <article className={critical ? "approval-card critical" : "approval-card"}>
+    <article
+      className={critical ? "approval-card critical" : "approval-card"}
+      id={`approval-${encodeURIComponent(approval.id)}`}
+      tabIndex={-1}
+    >
       <div className="approval-card-header">
         <div>
           <div className="approval-title-row">
@@ -928,6 +932,7 @@ export function App() {
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
+  const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const pendingApprovals = useMemo(
@@ -1019,6 +1024,7 @@ export function App() {
     let disposed = false;
     let stopApproval: UnlistenFn | undefined;
     let stopOpenApprovals: UnlistenFn | undefined;
+    let stopOpenApproval: UnlistenFn | undefined;
 
     const refreshApprovals = async () => {
       try {
@@ -1051,19 +1057,44 @@ export function App() {
       else stopOpenApprovals = stop;
     });
 
+    listen<string>("shellwarden://open-approval", (event) => {
+      if (!disposed) {
+        setFocusedApprovalId(event.payload);
+        setSection("Approvals");
+      }
+      void refreshApprovals();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopOpenApproval = stop;
+    });
+
     const approvalTimer = window.setInterval(() => void refreshApprovals(), 2000);
 
     return () => {
       disposed = true;
       stopApproval?.();
       stopOpenApprovals?.();
+      stopOpenApproval?.();
       window.clearInterval(approvalTimer);
     };
   }, []);
 
   useEffect(() => {
+    if (!focusedApprovalId || section !== "Approvals") return;
+
+    const target = document.getElementById(
+      `approval-${encodeURIComponent(focusedApprovalId)}`,
+    );
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+    }
+  }, [approvals, focusedApprovalId, section]);
+
+  useEffect(() => {
     let disposed = false;
     let stopRemote: UnlistenFn | undefined;
+    let stopOpenSettings: UnlistenFn | undefined;
 
     const refreshRemote = async () => {
       try {
@@ -1089,11 +1120,20 @@ export function App() {
       else stopRemote = stop;
     });
 
+    listen("shellwarden://open-settings", () => {
+      if (!disposed) setSection("Settings");
+      void refreshRemote();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopOpenSettings = stop;
+    });
+
     const remoteTimer = window.setInterval(() => void refreshRemote(), 3000);
 
     return () => {
       disposed = true;
       stopRemote?.();
+      stopOpenSettings?.();
       window.clearInterval(remoteTimer);
     };
   }, []);
