@@ -1080,6 +1080,7 @@ export function App() {
 
   useEffect(() => {
     if (!focusedApprovalId || section !== "Approvals") return;
+    if (!approvals.some((approval) => approval.id === focusedApprovalId)) return;
 
     const target = document.getElementById(
       `approval-${encodeURIComponent(focusedApprovalId)}`,
