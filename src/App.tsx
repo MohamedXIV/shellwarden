@@ -121,6 +121,17 @@ type RemoteAccessStatus = {
   error: string | null;
 };
 
+type NotificationDeliveryDiagnostic = {
+  timestampMs: number;
+  notificationKind: "approval" | "remote_error";
+  primaryBackend: "notify_rust";
+  primaryAumidMode: "shellwarden" | "powershell_fallback" | "plugin_managed";
+  primaryResult: "success" | "error";
+  fallbackBackend: "tauri_plugin" | null;
+  fallbackAumidMode: "plugin_managed" | null;
+  fallbackResult: "success" | "error" | null;
+};
+
 const initialRemoteAccess: RemoteAccessStatus = {
   phase: "unconfigured",
   configured: false,
@@ -793,11 +804,13 @@ function remotePhaseLabel(phase: RemoteAccessPhase) {
 function SettingsView({
   remote,
   busy,
+  diagnostics,
   error,
   onConnect,
 }: {
   remote: RemoteAccessStatus;
   busy: boolean;
+  diagnostics: NotificationDeliveryDiagnostic[];
   error: string | null;
   onConnect: (tunnelId: string, apiKey: string, binary: string) => Promise<void>;
 }) {
@@ -909,6 +922,36 @@ function SettingsView({
             loopback so local control continues without remote authority.
           </p>
         </section>
+
+        <section className="panel settings-card status-card">
+          <span className="section-kicker">NOTIFICATION DELIVERY</span>
+          <h2>Recent delivery attempts</h2>
+          {diagnostics.length === 0 ? (
+            <p className="settings-note">No notification delivery attempts recorded this session.</p>
+          ) : (
+            <dl>
+              {diagnostics.slice(0, 4).map((diagnostic) => (
+                <div key={`${diagnostic.timestampMs}:${diagnostic.notificationKind}`}>
+                  <dt>
+                    {diagnostic.notificationKind === "approval" ? "Approval" : "Remote error"} ·{" "}
+                    {new Date(diagnostic.timestampMs).toLocaleTimeString()}
+                  </dt>
+                  <dd>
+                    {diagnostic.primaryBackend} / {diagnostic.primaryAumidMode}:{" "}
+                    {diagnostic.primaryResult}
+                    {diagnostic.fallbackResult
+                      ? ` · fallback ${diagnostic.fallbackBackend}: ${diagnostic.fallbackResult}`
+                      : ""}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="settings-note">
+            Delivery diagnostics contain backend, identity mode, and success/error classification
+            only. Command payloads and raw error text are not recorded.
+          </p>
+        </section>
       </div>
     </section>
   );
@@ -928,6 +971,9 @@ export function App() {
   const [managementError, setManagementError] = useState<string | null>(null);
   const [managementBusy, setManagementBusy] = useState<string | null>(null);
   const [remoteAccess, setRemoteAccess] = useState<RemoteAccessStatus>(initialRemoteAccess);
+  const [notificationDiagnostics, setNotificationDiagnostics] = useState<
+    NotificationDeliveryDiagnostic[]
+  >([]);
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
@@ -1097,9 +1143,13 @@ export function App() {
 
     const refreshRemote = async () => {
       try {
-        const status = await invoke<RemoteAccessStatus>("remote_access_status");
+        const [status, diagnostics] = await Promise.all([
+          invoke<RemoteAccessStatus>("remote_access_status"),
+          invoke<NotificationDeliveryDiagnostic[]>("notification_delivery_diagnostics"),
+        ]);
         if (!disposed) {
           setRemoteAccess(status);
+          setNotificationDiagnostics(diagnostics);
           setRemoteError(null);
         }
       } catch (error: unknown) {
@@ -1356,6 +1406,7 @@ export function App() {
     content = (
       <SettingsView
         busy={remoteBusy}
+        diagnostics={notificationDiagnostics}
         error={remoteError}
         onConnect={connectRemote}
         remote={remoteAccess}
