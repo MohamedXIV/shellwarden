@@ -27,6 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Interactive pending-approval queue and Approvals UI with risk-limited scope choices, expiry/cancellation states, direct tray navigation, and Windows attention signaling.
 - Searchable Permissions management with revoke/reset controls and durable SQLite Audit history for policy decisions and terminal executions.
 - Loopback Streamable HTTP MCP ingress plus managed OpenAI Secure MCP Tunnel configuration, readiness, Pause/Resume, tray status, and shutdown supervision.
+- Native Windows toast notifications for new pending approvals and high-value remote errors with deduplication and direct action navigation.
 
 ### Changed
 - Closing the main ShellWarden window now hides it to the tray instead of terminating the application.

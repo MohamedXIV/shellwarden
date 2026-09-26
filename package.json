@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-notification": "2.2.1",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
