@@ -72,7 +72,15 @@ The command:
 
 Review the resulting diff, run verification, and commit it as `chore(release): vX.Y.Z`. Tag/build/publish only from that accepted release commit.
 
-The same command is used for alpha, beta, stable, patch, and later pre-1.0 milestone releases; only the SemVer argument changes.
+The same command is used for alpha, beta, stable, patch, and later pre-1.0 milestone releases; only the SemVer argument changes. For example:
+
+```bash
+npm run release:prepare -- 0.1.0-alpha.1 --date 2026-09-26
+npm run release:prepare -- 0.1.0-beta.1 --date 2026-10-10
+npm run release:prepare -- 0.1.0 --date 2026-10-24
+```
+
+Dates above illustrate the required explicit format; use the actual intended release date.
 
 ## First dogfood release
 
