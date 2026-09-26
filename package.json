@@ -3,12 +3,14 @@
   "private": true,
   "version": "0.0.0-dev",
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite --port 1420 --strictPort",
     "build": "npm run check && npm run build:web",
     "build:web": "vite build",
-    "check": "npm run lint && npm run typecheck && npm test",
+    "check": "npm run lint && npm run typecheck && npm run version:check && npm test",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
@@ -16,7 +18,9 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "version:check": "node scripts/release.mjs check",
+    "release:prepare": "node scripts/release.mjs prepare"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
