@@ -16,36 +16,69 @@ Examples:
 - `0.1.1` — compatible bug/security fixes;
 - `0.2.0` — next feature milestone or documented pre-1.0 breaking evolution.
 
-## Development version
+## Canonical version
 
-The repository starts at:
+`VERSION` is the repository source of truth. Development currently uses:
 
 ```text
 0.0.0-dev
 ```
 
-This is intentionally not a published release.
+The following files must always match it:
 
-The `VERSION` file is the repository-level source of truth until release automation is implemented. The release tooling issue will synchronize this value into Tauri/package/Cargo manifests rather than allowing versions to drift.
+- `package.json`;
+- `src-tauri/Cargo.toml`;
+- `src-tauri/tauri.conf.json`.
+
+Run:
+
+```bash
+npm run version:check
+```
+
+The same check runs inside `npm run check`, so manifest drift fails normal CI verification.
+
+The UI version is injected from `VERSION` by Vite; do not maintain a second frontend version literal.
 
 ## Changelog
 
 Maintain `CHANGELOG.md` using Keep a Changelog sections.
 
-All notable merged changes go under `[Unreleased]` immediately.
+All notable merged changes go under `[Unreleased]` immediately. Typical headings are Added, Changed, Deprecated, Removed, Fixed, and Security.
 
-Typical headings:
+Do not dump raw commit messages into the changelog. Entries must describe meaningful user, developer, or security effects. Pure internal refactoring, formatting, and test maintenance with no behavior effect do not require entries.
 
-- Added
-- Changed
-- Deprecated
-- Removed
-- Fixed
-- Security
+Release preparation never writes release-note prose. It only validates and mechanically promotes the curated `[Unreleased]` text that a human already wrote.
 
-Do not dump raw commit messages into the changelog. Entries should explain the meaningful user/developer/security effect.
+## Prepare a release
 
-Pure internal refactoring, formatting, and test maintenance with no meaningful behavior effect do not require entries.
+First curate `CHANGELOG.md` under `[Unreleased]`. It must contain at least one meaningful bullet.
+
+Then run exactly one preparation command with the chosen SemVer and release date:
+
+```bash
+npm run release:prepare -- 0.1.0-alpha.1 --date 2026-09-26
+```
+
+The command:
+
+1. verifies the repository starts with no version drift;
+2. validates the target as SemVer and requires an explicit `YYYY-MM-DD` date;
+3. refuses an empty `[Unreleased]` section;
+4. moves the existing curated `[Unreleased]` content verbatim under `## [VERSION] - DATE`;
+5. leaves a fresh empty `[Unreleased]` section;
+6. updates `VERSION`, `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`;
+7. verifies the resulting files are still consistent.
+
+Review the resulting diff, run verification, and commit it as `chore(release): vX.Y.Z`. Tag/build/publish only from that accepted release commit.
+
+The same command is used for alpha, beta, stable, patch, and later pre-1.0 milestone releases; only the SemVer argument changes.
+
+## First dogfood release
+
+Issue #14 owns the actual `0.1.0-alpha.1` release decision and artifact/tag. Issue #13 provides the tooling but does not bump the development branch merely to demonstrate it.
+
+A safe test fixture proves that `0.1.0-alpha.1` preparation synchronizes every manifest and promotes only prewritten changelog text.
 
 ## Commit and PR naming
 
@@ -61,23 +94,7 @@ Use Conventional Commit style where practical:
 - `chore:`
 - `security:`
 
-This keeps history searchable and will support future release automation, but the curated changelog remains authoritative.
-
-## Release procedure
-
-Until automated:
-
-1. Confirm the release acceptance criteria and tests.
-2. Choose the SemVer version.
-3. Move relevant `[Unreleased]` entries into a new dated release heading.
-4. Leave a fresh empty `[Unreleased]` section.
-5. Update `VERSION`.
-6. Synchronize all application/package manifests once they exist.
-7. Commit as `chore(release): vX.Y.Z`.
-8. Create annotated/tagged release `vX.Y.Z`.
-9. Build/publish artifacts from that exact tag/commit.
-
-The release automation issue should make these steps reproducible and verify version consistency.
+This keeps history searchable, but the curated changelog remains authoritative.
 
 ## Security releases
 
