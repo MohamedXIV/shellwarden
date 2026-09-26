@@ -265,49 +265,92 @@ fn show_main_window_ref(app: &AppHandle) {
 }
 
 #[cfg(windows)]
-fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
-    use tauri_winrt_notification::Toast;
+fn is_direct_cargo_build(executable: &std::path::Path, build_out_dir: &std::path::Path) -> bool {
+    // OUT_DIR is <target-dir>/<profile>/build/<crate-hash>/out.
+    // Deriving the target directory handles custom targets such as target-acceptance
+    // without hard-coding a directory name.
+    build_out_dir
+        .ancestors()
+        .nth(4)
+        .is_some_and(|target_dir| executable.starts_with(target_dir))
+}
 
-    let app_id = app.config().identifier.clone();
+#[cfg(windows)]
+fn show_windows_notification<F>(
+    app: &AppHandle,
+    title: &str,
+    body: &str,
+    on_activate: F,
+) -> Result<(), String>
+where
+    F: FnOnce(AppHandle) + Send + 'static,
+{
+    use notify_rust::{Notification, NotificationResponse};
+
+    let mut notification = Notification::new();
+    notification.summary(title).body(body);
+
+    // Windows silently drops desktop toasts whose custom AppUserModelID is not
+    // registered by an installed Start Menu shortcut. Direct Cargo builds do not
+    // have that registration, so leave app_id unset there: notify-rust deliberately
+    // falls back to Windows PowerShell's registered AUMID. Installed ShellWarden
+    // builds keep the real application identifier and branding.
+    let executable = tauri::utils::platform::current_exe().map_err(|error| error.to_string())?;
+    let build_out_dir = std::path::Path::new(env!("OUT_DIR"));
+    if !is_direct_cargo_build(&executable, build_out_dir) {
+        notification.app_id(&app.config().identifier);
+    }
+
+    let handle = notification.show().map_err(|error| error.to_string())?;
     let activation_app = app.clone();
+
+    std::thread::spawn(move || {
+        let _ = handle.wait_for_response(move |response| {
+            if matches!(
+                response,
+                NotificationResponse::Default | NotificationResponse::Action(_)
+            ) {
+                on_activate(activation_app);
+            }
+        });
+    });
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
     let activation_approval_id = approval_id.to_string();
 
-    Toast::new(&app_id)
-        .title("ShellWarden — Approval Needed")
-        .text1(APPROVAL_NOTIFICATION_BODY)
-        .on_activated(move |_| {
+    show_windows_notification(
+        app,
+        "ShellWarden — Approval Needed",
+        APPROVAL_NOTIFICATION_BODY,
+        move |activation_app| {
             let app = activation_app.clone();
-            let approval_id = activation_approval_id.clone();
+            let approval_id = activation_approval_id;
             let _ = activation_app.run_on_main_thread(move || {
                 show_main_window_ref(&app);
                 let _ = app.emit("shellwarden://open-approval", approval_id);
             });
-            Ok(())
-        })
-        .show()
-        .map_err(|error| error.to_string())
+        },
+    )
 }
 
 #[cfg(windows)]
 fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
-    use tauri_winrt_notification::Toast;
-
-    let app_id = app.config().identifier.clone();
-    let activation_app = app.clone();
-
-    Toast::new(&app_id)
-        .title("ShellWarden — Remote Access Error")
-        .text1(REMOTE_ERROR_NOTIFICATION_BODY)
-        .on_activated(move |_| {
+    show_windows_notification(
+        app,
+        "ShellWarden — Remote Access Error",
+        REMOTE_ERROR_NOTIFICATION_BODY,
+        move |activation_app| {
             let app = activation_app.clone();
             let _ = activation_app.run_on_main_thread(move || {
                 show_main_window_ref(&app);
                 let _ = app.emit("shellwarden://open-settings", ());
             });
-            Ok(())
-        })
-        .show()
-        .map_err(|error| error.to_string())
+        },
+    )
 }
 
 fn show_approval_notification(app: &AppHandle, approval_id: &str) {
@@ -695,6 +738,23 @@ mod tests {
 
         assert!(tracker.should_notify_approval("approval-2"));
         assert!(!tracker.should_notify_approval("approval-2"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn direct_cargo_build_detection_supports_custom_target_directories() {
+        use std::path::Path;
+
+        let build_out = Path::new(
+            r"C:\repo\src-tauri\target-acceptance\release\build\shellwarden-abc\out",
+        );
+        let direct_exe =
+            Path::new(r"C:\repo\src-tauri\target-acceptance\release\shellwarden.exe");
+        let installed_exe =
+            Path::new(r"C:\Program Files\ShellWarden\shellwarden.exe");
+
+        assert!(is_direct_cargo_build(direct_exe, build_out));
+        assert!(!is_direct_cargo_build(installed_exe, build_out));
     }
 
     #[test]

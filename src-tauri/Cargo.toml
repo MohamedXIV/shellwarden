@@ -27,4 +27,4 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "~2.2.0"
 
 [target.'cfg(windows)'.dependencies]
-tauri-winrt-notification = "=0.7.3"
+notify-rust = "=4.18.0"
