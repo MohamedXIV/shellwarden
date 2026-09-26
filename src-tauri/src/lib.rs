@@ -44,6 +44,11 @@ const MENU_APPROVALS: &str = "approvals";
 const MENU_REMOTE: &str = "remote";
 const MENU_EXIT: &str = "exit";
 
+const APPROVAL_NOTIFICATION_BODY: &str =
+    "A command is waiting for review. Open ShellWarden to inspect the request.";
+const REMOTE_ERROR_NOTIFICATION_BODY: &str =
+    "Remote access needs attention. Open ShellWarden for diagnostics.";
+
 #[derive(Default)]
 pub struct NotificationTracker {
     notified_approvals: Mutex<HashSet<String>>,
@@ -257,6 +262,123 @@ fn show_main_window_ref(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[cfg(windows)]
+fn is_direct_cargo_build(executable: &std::path::Path, build_out_dir: &std::path::Path) -> bool {
+    // OUT_DIR is <target-dir>/<profile>/build/<crate-hash>/out.
+    // Deriving the target directory handles custom targets such as target-acceptance
+    // without hard-coding a directory name.
+    build_out_dir
+        .ancestors()
+        .nth(4)
+        .is_some_and(|target_dir| executable.starts_with(target_dir))
+}
+
+#[cfg(windows)]
+fn show_windows_notification<F>(
+    app: &AppHandle,
+    title: &str,
+    body: &str,
+    on_activate: F,
+) -> Result<(), String>
+where
+    F: FnOnce(AppHandle) + Send + 'static,
+{
+    use notify_rust::{Notification, NotificationResponse};
+
+    let mut notification = Notification::new();
+    notification.summary(title).body(body);
+
+    // Windows silently drops desktop toasts whose custom AppUserModelID is not
+    // registered by an installed Start Menu shortcut. Direct Cargo builds do not
+    // have that registration, so leave app_id unset there: notify-rust deliberately
+    // falls back to Windows PowerShell's registered AUMID. Installed ShellWarden
+    // builds keep the real application identifier and branding.
+    let executable = tauri::utils::platform::current_exe().map_err(|error| error.to_string())?;
+    let build_out_dir = std::path::Path::new(env!("OUT_DIR"));
+    if !is_direct_cargo_build(&executable, build_out_dir) {
+        notification.app_id(&app.config().identifier);
+    }
+
+    let handle = notification.show().map_err(|error| error.to_string())?;
+    let activation_app = app.clone();
+
+    std::thread::spawn(move || {
+        let _ = handle.wait_for_response(move |response: &NotificationResponse| {
+            if matches!(
+                response,
+                NotificationResponse::Default | NotificationResponse::Action(_)
+            ) {
+                on_activate(activation_app);
+            }
+        });
+    });
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
+    let activation_approval_id = approval_id.to_string();
+
+    show_windows_notification(
+        app,
+        "ShellWarden — Approval Needed",
+        APPROVAL_NOTIFICATION_BODY,
+        move |activation_app| {
+            let app = activation_app.clone();
+            let approval_id = activation_approval_id;
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-approval", approval_id);
+            });
+        },
+    )
+}
+
+#[cfg(windows)]
+fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
+    show_windows_notification(
+        app,
+        "ShellWarden — Remote Access Error",
+        REMOTE_ERROR_NOTIFICATION_BODY,
+        move |activation_app| {
+            let app = activation_app.clone();
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-settings", ());
+            });
+        },
+    )
+}
+
+fn show_approval_notification(app: &AppHandle, approval_id: &str) {
+    #[cfg(windows)]
+    if show_windows_approval_notification(app, approval_id).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Approval Needed")
+        .body(APPROVAL_NOTIFICATION_BODY)
+        .show();
+}
+
+fn show_remote_error_notification(app: &AppHandle) {
+    #[cfg(windows)]
+    if show_windows_remote_error_notification(app).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Remote Access Error")
+        .body(REMOTE_ERROR_NOTIFICATION_BODY)
+        .show();
 }
 
 fn running_execution_count(app: &AppHandle) -> usize {
@@ -531,13 +653,7 @@ pub fn run() {
                             if approval.status == ApprovalStatus::Pending {
                                 let tracker = approval_app.state::<NotificationTracker>();
                                 if tracker.should_notify_approval(&approval.id) {
-                                    let cmd_text = approval.command.join(" ");
-                                    let _ = approval_app
-                                        .notification()
-                                        .builder()
-                                        .title("ShellWarden — Approval Needed")
-                                        .body(format!("{} requested: {}", approval.source, cmd_text))
-                                        .show();
+                                    show_approval_notification(&approval_app, &approval.id);
                                 }
                                 if let Some(window) =
                                     approval_app.get_webview_window(MAIN_WINDOW_LABEL)
@@ -566,16 +682,7 @@ pub fn run() {
                 let status = remote_app.state::<RemoteAccessState>().status(&remote_app);
                 let tracker = remote_app.state::<NotificationTracker>();
                 if tracker.should_notify_remote_error(status.phase, status.error.as_deref()) {
-                    let err_text = status
-                        .error
-                        .as_deref()
-                        .unwrap_or("Remote access encountered an error.");
-                    let _ = remote_app
-                        .notification()
-                        .builder()
-                        .title("ShellWarden — Remote Access Error")
-                        .body(err_text)
-                        .show();
+                    show_remote_error_notification(&remote_app);
                 }
                 let _ = update_tray_attention(&remote_app);
             });
@@ -631,6 +738,45 @@ mod tests {
 
         assert!(tracker.should_notify_approval("approval-2"));
         assert!(!tracker.should_notify_approval("approval-2"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn direct_cargo_build_detection_supports_custom_target_directories() {
+        use std::path::Path;
+
+        let build_out = Path::new(
+            r"C:\repo\src-tauri\target-acceptance\release\build\shellwarden-abc\out",
+        );
+        let direct_exe =
+            Path::new(r"C:\repo\src-tauri\target-acceptance\release\shellwarden.exe");
+        let installed_exe =
+            Path::new(r"C:\Program Files\ShellWarden\shellwarden.exe");
+
+        assert!(is_direct_cargo_build(direct_exe, build_out));
+        assert!(!is_direct_cargo_build(installed_exe, build_out));
+    }
+
+    #[test]
+    fn notification_bodies_are_operator_safe_and_payload_free() {
+        assert_eq!(
+            APPROVAL_NOTIFICATION_BODY,
+            "A command is waiting for review. Open ShellWarden to inspect the request."
+        );
+        assert_eq!(
+            REMOTE_ERROR_NOTIFICATION_BODY,
+            "Remote access needs attention. Open ShellWarden for diagnostics."
+        );
+
+        for sensitive in [
+            "rm -rf",
+            "CONTROL_PLANE_API_KEY",
+            "connection refused",
+            "openai-secure-mcp-tunnel",
+        ] {
+            assert!(!APPROVAL_NOTIFICATION_BODY.contains(sensitive));
+            assert!(!REMOTE_ERROR_NOTIFICATION_BODY.contains(sensitive));
+        }
     }
 
     #[test]
