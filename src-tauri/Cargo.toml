@@ -23,4 +23,4 @@ rmcp = { version = "3.0.1", features = ["server", "macros", "transport-streamabl
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 tokio-util = "0.7"
 axum = { version = "0.8", features = ["http1", "tokio"] }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "~2.11.0", features = ["tray-icon"] }
