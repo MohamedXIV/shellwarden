@@ -441,6 +441,7 @@ function ApprovalsView({
   focusedApprovalId,
   now,
   resolving,
+  onFocusedApprovalHandled,
   onResolve,
 }: {
   approvals: ApprovalView[];
@@ -448,6 +449,7 @@ function ApprovalsView({
   focusedApprovalId: string | null;
   now: number;
   resolving: string | null;
+  onFocusedApprovalHandled: () => void;
   onResolve: (approvalId: string, scope: ApprovalScope) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<ApprovalInboxStatus>("all");
@@ -514,6 +516,53 @@ function ApprovalsView({
     setSortOrder(next);
     setHistoryPage(0);
   };
+
+  useEffect(() => {
+    if (!focusedApprovalId) return;
+
+    const targetApproval = approvals.find((approval) => approval.id === focusedApprovalId);
+    if (!targetApproval) return;
+
+    // Explicit notification navigation temporarily overrides inbox controls so the
+    // requested card remains visible after the one-shot focus target is released.
+    if (statusFilter !== "all" || search !== "") {
+      setStatusFilter("all");
+      setSearch("");
+      setHistoryPage(0);
+      return;
+    }
+
+    if (targetApproval.status !== "pending") {
+      const orderedHistory = approvals
+        .filter((approval) => approval.status !== "pending")
+        .sort((left, right) => compareApprovals(left, right, sortOrder));
+      const targetIndex = orderedHistory.findIndex(
+        (approval) => approval.id === focusedApprovalId,
+      );
+      const targetPage = Math.max(0, Math.floor(targetIndex / APPROVAL_HISTORY_PAGE_SIZE));
+      if (safeHistoryPage !== targetPage) {
+        setHistoryPage(targetPage);
+        return;
+      }
+    }
+
+    const target = document.getElementById(
+      `approval-${encodeURIComponent(focusedApprovalId)}`,
+    );
+    if (target instanceof HTMLElement) {
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      onFocusedApprovalHandled();
+    }
+  }, [
+    approvals,
+    focusedApprovalId,
+    onFocusedApprovalHandled,
+    safeHistoryPage,
+    search,
+    sortOrder,
+    statusFilter,
+  ]);
 
   return (
     <section className="approvals-page">
@@ -1175,6 +1224,7 @@ export function App() {
     () => approvals.filter((approval) => approval.status === "pending").length,
     [approvals],
   );
+  const clearFocusedApproval = useCallback(() => setFocusedApprovalId(null), []);
 
   const refreshManagement = useCallback(async () => {
     try {
@@ -1314,23 +1364,6 @@ export function App() {
       window.clearInterval(approvalTimer);
     };
   }, []);
-
-  useEffect(() => {
-    if (!focusedApprovalId || section !== "Approvals") return;
-    if (!approvals.some((approval) => approval.id === focusedApprovalId)) return;
-
-    const target = document.getElementById(
-      `approval-${encodeURIComponent(focusedApprovalId)}`,
-    );
-    if (target instanceof HTMLElement) {
-      target.focus({ preventScroll: true });
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Notification activation is a one-shot navigation request. Once the exact
-      // approval is visible, release the target so later polling/list changes
-      // cannot drag the operator back to an older card.
-      setFocusedApprovalId(null);
-    }
-  }, [approvals, focusedApprovalId, section]);
 
   useEffect(() => {
     let disposed = false;
@@ -1577,6 +1610,7 @@ export function App() {
         error={approvalError}
         focusedApprovalId={focusedApprovalId}
         now={now}
+        onFocusedApprovalHandled={clearFocusedApproval}
         onResolve={resolveApproval}
         resolving={resolvingApproval}
       />
