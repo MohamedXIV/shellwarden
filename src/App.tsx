@@ -68,6 +68,19 @@ type ApprovalScope =
   | "deny";
 
 type ApprovalStatus = "pending" | "allowed" | "denied" | "cancelled" | "expired";
+type ApprovalInboxStatus = "all" | ApprovalStatus;
+type ApprovalSortOrder = "newest" | "oldest";
+
+const APPROVAL_HISTORY_PAGE_SIZE = 25;
+
+const approvalStatusFilters: Array<{ label: string; value: ApprovalInboxStatus }> = [
+  { label: "All", value: "all" },
+  { label: "Pending", value: "pending" },
+  { label: "Allowed", value: "allowed" },
+  { label: "Denied", value: "denied" },
+  { label: "Cancelled", value: "cancelled" },
+  { label: "Expired", value: "expired" },
+];
 
 type ApprovalView = {
   id: string;
@@ -253,6 +266,35 @@ function approvalAge(approval: ApprovalView, now: number) {
   return formatDuration(Math.max(0, end - approval.requestedAtMs));
 }
 
+function approvalMatchesSearch(approval: ApprovalView, query: string) {
+  if (!query) return true;
+  const haystack = [
+    approval.source,
+    commandText(approval.command),
+    approval.directory,
+    approval.sessionId ?? "",
+    approval.operationClass,
+    approval.status,
+    approval.risk.class,
+    approval.risk.reason,
+  ]
+    .join("\n")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
+function compareApprovals(
+  left: ApprovalView,
+  right: ApprovalView,
+  order: ApprovalSortOrder,
+) {
+  const timeDelta = left.requestedAtMs - right.requestedAtMs;
+  if (timeDelta !== 0) return order === "newest" ? -timeDelta : timeDelta;
+  return order === "newest"
+    ? right.id.localeCompare(left.id)
+    : left.id.localeCompare(right.id);
+}
+
 function ApprovalCard({
   approval,
   now,
@@ -270,7 +312,11 @@ function ApprovalCard({
     approval.expiresAtMs == null ? null : Math.max(0, approval.expiresAtMs - now);
 
   return (
-    <article className={critical ? "approval-card critical" : "approval-card"}>
+    <article
+      className={critical ? "approval-card critical" : "approval-card"}
+      id={`approval-${encodeURIComponent(approval.id)}`}
+      tabIndex={-1}
+    >
       <div className="approval-card-header">
         <div>
           <div className="approval-title-row">
@@ -346,21 +392,177 @@ function ApprovalCard({
   );
 }
 
+function ApprovalHistoryRow({
+  approval,
+  now,
+}: {
+  approval: ApprovalView;
+  now: number;
+}) {
+  return (
+    <article
+      className="approval-history-row"
+      id={`approval-${encodeURIComponent(approval.id)}`}
+      tabIndex={-1}
+    >
+      <div className="approval-history-main">
+        <div className="approval-title-row">
+          <span className={`approval-risk risk-${approval.risk.class}`}>
+            {approval.risk.class.toUpperCase()}
+          </span>
+          <span className={`approval-status approval-status-${approval.status}`}>
+            {approvalStatusLabel(approval.status)}
+          </span>
+        </div>
+        <code className="approval-history-command" title={commandText(approval.command)}>
+          {commandText(approval.command)}
+        </code>
+        <div className="approval-history-meta">
+          <span>{approval.source}</span>
+          <span title={approval.directory}>{shortDirectory(approval.directory)}</span>
+          {approval.sessionId && <span>session: {approval.sessionId}</span>}
+        </div>
+      </div>
+      <div className="approval-history-result">
+        <strong>
+          {approval.resolutionScope
+            ? approvalScopeCopy[approval.resolutionScope].title
+            : approvalStatusLabel(approval.status)}
+        </strong>
+        <span>{approvalAge(approval, now)}</span>
+      </div>
+    </article>
+  );
+}
+
 function ApprovalsView({
   approvals,
   error,
+  focusedApprovalId,
   now,
   resolving,
+  onFocusedApprovalHandled,
   onResolve,
 }: {
   approvals: ApprovalView[];
   error: string | null;
+  focusedApprovalId: string | null;
   now: number;
   resolving: string | null;
+  onFocusedApprovalHandled: () => void;
   onResolve: (approvalId: string, scope: ApprovalScope) => void;
 }) {
-  const pending = approvals.filter((approval) => approval.status === "pending");
-  const recent = approvals.filter((approval) => approval.status !== "pending").slice(0, 10);
+  const [statusFilter, setStatusFilter] = useState<ApprovalInboxStatus>("all");
+  const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<ApprovalSortOrder>("newest");
+  const [historyPage, setHistoryPage] = useState(0);
+  const query = search.trim().toLowerCase();
+  const totalPending = approvals.filter((approval) => approval.status === "pending").length;
+
+  const filtered = useMemo(
+    () =>
+      approvals.filter(
+        (approval) =>
+          approval.id === focusedApprovalId ||
+          ((statusFilter === "all" || approval.status === statusFilter) &&
+            approvalMatchesSearch(approval, query)),
+      ),
+    [approvals, focusedApprovalId, query, statusFilter],
+  );
+
+  const pending = useMemo(
+    () =>
+      filtered
+        .filter((approval) => approval.status === "pending")
+        .sort((left, right) => compareApprovals(left, right, sortOrder)),
+    [filtered, sortOrder],
+  );
+
+  const history = useMemo(
+    () =>
+      filtered
+        .filter((approval) => approval.status !== "pending")
+        .sort((left, right) => compareApprovals(left, right, sortOrder)),
+    [filtered, sortOrder],
+  );
+
+  const historyPageCount = Math.max(1, Math.ceil(history.length / APPROVAL_HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, historyPageCount - 1);
+  const historyStart = safeHistoryPage * APPROVAL_HISTORY_PAGE_SIZE;
+  const pagedHistory = history.slice(
+    historyStart,
+    historyStart + APPROVAL_HISTORY_PAGE_SIZE,
+  );
+  const focusedHistory =
+    focusedApprovalId == null
+      ? null
+      : history.find((approval) => approval.id === focusedApprovalId) ?? null;
+  const visibleHistory =
+    focusedHistory && !pagedHistory.some((approval) => approval.id === focusedHistory.id)
+      ? [focusedHistory, ...pagedHistory]
+      : pagedHistory;
+
+  const updateSearch = (next: string) => {
+    setSearch(next);
+    setHistoryPage(0);
+  };
+
+  const updateStatusFilter = (next: ApprovalInboxStatus) => {
+    setStatusFilter(next);
+    setHistoryPage(0);
+  };
+
+  const updateSortOrder = (next: ApprovalSortOrder) => {
+    setSortOrder(next);
+    setHistoryPage(0);
+  };
+
+  useEffect(() => {
+    if (!focusedApprovalId) return;
+
+    const targetApproval = approvals.find((approval) => approval.id === focusedApprovalId);
+    if (!targetApproval) return;
+
+    // Explicit notification navigation temporarily overrides inbox controls so the
+    // requested card remains visible after the one-shot focus target is released.
+    if (statusFilter !== "all" || search !== "") {
+      setStatusFilter("all");
+      setSearch("");
+      setHistoryPage(0);
+      return;
+    }
+
+    if (targetApproval.status !== "pending") {
+      const orderedHistory = approvals
+        .filter((approval) => approval.status !== "pending")
+        .sort((left, right) => compareApprovals(left, right, sortOrder));
+      const targetIndex = orderedHistory.findIndex(
+        (approval) => approval.id === focusedApprovalId,
+      );
+      const targetPage = Math.max(0, Math.floor(targetIndex / APPROVAL_HISTORY_PAGE_SIZE));
+      if (safeHistoryPage !== targetPage) {
+        setHistoryPage(targetPage);
+        return;
+      }
+    }
+
+    const target = document.getElementById(
+      `approval-${encodeURIComponent(focusedApprovalId)}`,
+    );
+    if (target instanceof HTMLElement) {
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      onFocusedApprovalHandled();
+    }
+  }, [
+    approvals,
+    focusedApprovalId,
+    onFocusedApprovalHandled,
+    safeHistoryPage,
+    search,
+    sortOrder,
+    statusFilter,
+  ]);
 
   return (
     <section className="approvals-page">
@@ -369,12 +571,12 @@ function ApprovalsView({
           <span className="section-kicker">HUMAN AUTHORITY</span>
           <h1>Approvals</h1>
           <p>
-            ShellWarden only offers scopes allowed by the deterministic risk policy for each
-            request.
+            Review current authority requests first, then search and filter the bounded session
+            history without changing policy or approval authority.
           </p>
         </div>
-        <div className={pending.length > 0 ? "approval-count attention" : "approval-count"}>
-          <strong>{pending.length}</strong>
+        <div className={totalPending > 0 ? "approval-count attention" : "approval-count"}>
+          <strong>{totalPending}</strong>
           <span>waiting</span>
         </div>
       </div>
@@ -386,37 +588,76 @@ function ApprovalsView({
         </div>
       )}
 
-      {pending.length === 0 ? (
-        <section className="panel approval-empty">
-          <div className="empty-mark">◇</div>
-          <strong>No approvals waiting</strong>
-          <p>
-            When an MCP requester needs authority that policy cannot grant automatically, the
-            request appears here and the tray calls for attention.
-          </p>
-        </section>
-      ) : (
-        <div className="approval-list">
-          {pending.map((approval) => (
-            <ApprovalCard
-              approval={approval}
-              key={approval.id}
-              now={now}
-              onResolve={onResolve}
-              resolving={resolving}
-            />
-          ))}
-        </div>
-      )}
+      <section className="panel approval-inbox-toolbar" aria-label="Approval inbox controls">
+        <label className="approval-search">
+          <span>Search approvals</span>
+          <input
+            onChange={(event) => updateSearch(event.target.value)}
+            placeholder="command, requester, cwd, session, status…"
+            type="search"
+            value={search}
+          />
+        </label>
 
-      {recent.length > 0 && (
-        <section className="approval-recent">
-          <div className="approval-section-heading">
-            <span className="section-kicker">RECENTLY RESOLVED</span>
-            <span>{recent.length} retained this session</span>
+        <fieldset className="approval-filter-group">
+          <legend>Status</legend>
+          <div className="approval-filter-buttons">
+            {approvalStatusFilters.map((option) => (
+              <button
+                aria-pressed={statusFilter === option.value}
+                className={statusFilter === option.value ? "active" : ""}
+                key={option.value}
+                onClick={() => updateStatusFilter(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
-          <div className="approval-list compact">
-            {recent.map((approval) => (
+        </fieldset>
+
+        <fieldset className="approval-filter-group">
+          <legend>Order</legend>
+          <div className="approval-filter-buttons">
+            {(["newest", "oldest"] as ApprovalSortOrder[]).map((order) => (
+              <button
+                aria-pressed={sortOrder === order}
+                className={sortOrder === order ? "active" : ""}
+                key={order}
+                onClick={() => updateSortOrder(order)}
+                type="button"
+              >
+                {order === "newest" ? "Newest" : "Oldest"}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </section>
+
+      <section className="approval-queue" aria-labelledby="approval-pending-heading">
+        <div className="approval-section-heading">
+          <div>
+            <span className="section-kicker">PENDING</span>
+            <h2 id="approval-pending-heading">Needs your decision</h2>
+          </div>
+          <span>
+            {pending.length} visible · {totalPending} total
+          </span>
+        </div>
+
+        {pending.length === 0 ? (
+          <section className="panel approval-empty compact">
+            <div className="empty-mark">◇</div>
+            <strong>{totalPending === 0 ? "No approvals waiting" : "No pending approvals match"}</strong>
+            <p>
+              {totalPending === 0
+                ? "New requests that need human authority will appear here."
+                : "Clear the current search or status filter to return to the pending queue."}
+            </p>
+          </section>
+        ) : (
+          <div className="approval-list">
+            {pending.map((approval) => (
               <ApprovalCard
                 approval={approval}
                 key={approval.id}
@@ -426,8 +667,56 @@ function ApprovalsView({
               />
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
+
+      <section className="approval-history" aria-labelledby="approval-history-heading">
+        <div className="approval-section-heading">
+          <div>
+            <span className="section-kicker">HISTORY</span>
+            <h2 id="approval-history-heading">Resolved this session</h2>
+          </div>
+          <span>{history.length} match</span>
+        </div>
+
+        {history.length === 0 ? (
+          <div className="panel approval-history-empty">
+            No resolved approvals match the current inbox controls.
+          </div>
+        ) : (
+          <>
+            <div className="approval-history-list">
+              {visibleHistory.map((approval) => (
+                <ApprovalHistoryRow approval={approval} key={approval.id} now={now} />
+              ))}
+            </div>
+            <div className="approval-history-pagination">
+              <span>
+                {historyStart + 1}–{Math.min(historyStart + APPROVAL_HISTORY_PAGE_SIZE, history.length)}
+                {" "}of {history.length}
+              </span>
+              <div>
+                <button
+                  disabled={safeHistoryPage === 0}
+                  onClick={() => setHistoryPage(Math.max(0, safeHistoryPage - 1))}
+                  type="button"
+                >
+                  Previous page
+                </button>
+                <button
+                  disabled={safeHistoryPage >= historyPageCount - 1}
+                  onClick={() =>
+                    setHistoryPage(Math.min(historyPageCount - 1, safeHistoryPage + 1))
+                  }
+                  type="button"
+                >
+                  Next page
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
     </section>
   );
 }
@@ -928,12 +1217,14 @@ export function App() {
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [resolvingApproval, setResolvingApproval] = useState<string | null>(null);
+  const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const pendingApprovals = useMemo(
     () => approvals.filter((approval) => approval.status === "pending").length,
     [approvals],
   );
+  const clearFocusedApproval = useCallback(() => setFocusedApprovalId(null), []);
 
   const refreshManagement = useCallback(async () => {
     try {
@@ -1019,6 +1310,7 @@ export function App() {
     let disposed = false;
     let stopApproval: UnlistenFn | undefined;
     let stopOpenApprovals: UnlistenFn | undefined;
+    let stopOpenApproval: UnlistenFn | undefined;
 
     const refreshApprovals = async () => {
       try {
@@ -1051,12 +1343,24 @@ export function App() {
       else stopOpenApprovals = stop;
     });
 
+    listen<string>("shellwarden://open-approval", (event) => {
+      if (!disposed) {
+        setFocusedApprovalId(event.payload);
+        setSection("Approvals");
+      }
+      void refreshApprovals();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopOpenApproval = stop;
+    });
+
     const approvalTimer = window.setInterval(() => void refreshApprovals(), 2000);
 
     return () => {
       disposed = true;
       stopApproval?.();
       stopOpenApprovals?.();
+      stopOpenApproval?.();
       window.clearInterval(approvalTimer);
     };
   }, []);
@@ -1064,6 +1368,7 @@ export function App() {
   useEffect(() => {
     let disposed = false;
     let stopRemote: UnlistenFn | undefined;
+    let stopOpenSettings: UnlistenFn | undefined;
 
     const refreshRemote = async () => {
       try {
@@ -1089,11 +1394,20 @@ export function App() {
       else stopRemote = stop;
     });
 
+    listen("shellwarden://open-settings", () => {
+      if (!disposed) setSection("Settings");
+      void refreshRemote();
+    }).then((stop) => {
+      if (disposed) stop();
+      else stopOpenSettings = stop;
+    });
+
     const remoteTimer = window.setInterval(() => void refreshRemote(), 3000);
 
     return () => {
       disposed = true;
       stopRemote?.();
+      stopOpenSettings?.();
       window.clearInterval(remoteTimer);
     };
   }, []);
@@ -1294,7 +1608,9 @@ export function App() {
       <ApprovalsView
         approvals={approvals}
         error={approvalError}
+        focusedApprovalId={focusedApprovalId}
         now={now}
+        onFocusedApprovalHandled={clearFocusedApproval}
         onResolve={resolveApproval}
         resolving={resolvingApproval}
       />

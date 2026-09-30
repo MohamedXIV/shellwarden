@@ -58,11 +58,11 @@ function formatTimestamp(timestampMs: number) {
 
 function formatDuration(milliseconds: number | null) {
   if (milliseconds == null) return "—";
-  if (milliseconds < 1000) return String(milliseconds) + " ms";
+  if (milliseconds < 1000) return `${milliseconds} ms`;
   const seconds = Math.round(milliseconds / 100) / 10;
-  if (seconds < 60) return String(seconds) + "s";
+  if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
-  return String(minutes) + "m " + String(Math.round(seconds % 60)) + "s";
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
 }
 
 function shortDirectory(directory: string) {
@@ -214,11 +214,11 @@ export function PermissionsView({
       ) : (
         <div className="permission-list">
           {filtered.map((rule) => (
-            <article className={"permission-card effect-" + rule.effect} key={rule.id}>
+            <article className={`permission-card effect-${rule.effect}`} key={rule.id}>
               <div className="permission-card-head">
                 <div>
                   <div className="permission-badges">
-                    <span className={"effect-badge effect-" + rule.effect}>{rule.effect}</span>
+                    <span className={`effect-badge effect-${rule.effect}`}>{rule.effect}</span>
                     <span>{scopeLabels[rule.scope]}</span>
                     <span>{rule.persistence}</span>
                   </div>
@@ -231,7 +231,7 @@ export function PermissionsView({
                   onClick={() => onRevoke(rule.id)}
                   type="button"
                 >
-                  {busy === "revoke:" + rule.id ? "Revoking…" : "Revoke"}
+                  {busy === `revoke:${rule.id}` ? "Revoking…" : "Revoke"}
                 </button>
               </div>
 
@@ -357,13 +357,13 @@ export function AuditView({
       ) : (
         <div className="audit-list">
           {filtered.map((entry) => (
-            <article className={"audit-card kind-" + entry.kind} key={entry.id}>
+            <article className={`audit-card kind-${entry.kind}`} key={entry.id}>
               <div className="audit-card-head">
                 <div className="audit-title">
-                  <span className={"audit-kind kind-" + entry.kind}>{entry.kind}</span>
+                  <span className={`audit-kind kind-${entry.kind}`}>{entry.kind}</span>
                   <strong>{entry.commandSummary}</strong>
                   {entry.riskClass && (
-                    <span className={"risk-badge risk-" + entry.riskClass}>{entry.riskClass}</span>
+                    <span className={`risk-badge risk-${entry.riskClass}`}>{entry.riskClass}</span>
                   )}
                 </div>
                 <time>{formatTimestamp(entry.timestampMs)}</time>
@@ -373,8 +373,8 @@ export function AuditView({
                 <span>{entry.source}</span>
                 <span>{entry.operationClass}</span>
                 <span title={entry.directory}>{shortDirectory(entry.directory)}</span>
-                {entry.outcome && <span className={"audit-result result-" + entry.outcome}>{entry.outcome}</span>}
-                {entry.status && <span className={"audit-result result-" + entry.status}>{entry.status}</span>}
+                {entry.outcome && <span className={`audit-result result-${entry.outcome}`}>{entry.outcome}</span>}
+                {entry.status && <span className={`audit-result result-${entry.status}`}>{entry.status}</span>}
                 {entry.durationMs != null && <span>{formatDuration(entry.durationMs)}</span>}
               </div>
 
