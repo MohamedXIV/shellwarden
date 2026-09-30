@@ -27,7 +27,7 @@ const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 test("release config produces a per-user NSIS installer with packaged runtimes", () => {
   assert.equal(releaseConfig.bundle.active, true);
   assert.deepEqual(releaseConfig.bundle.targets, ["nsis"]);
-  assert.equal(releaseConfig.bundle.windows.nsis.installMode, "perUser");
+  assert.equal(releaseConfig.bundle.windows.nsis.installMode, "currentUser");
   assert.equal(
     releaseConfig.bundle.resources["../execution/dist/shellwarden-broker.exe"],
     "execution/shellwarden-broker.exe",
