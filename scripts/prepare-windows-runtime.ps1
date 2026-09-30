@@ -27,8 +27,10 @@ Invoke-WebRequest "$tunnelBase/$licenseName" -OutFile (Join-Path $runtimeDir "tu
 Invoke-WebRequest "$tunnelBase/$spdxName" -OutFile (Join-Path $runtimeDir "tunnel-client.spdx.json")
 
 Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
-$tunnelExe = Get-ChildItem $extractDir -Filter "tunnel-client.exe" -Recurse | Select-Object -First 1
-if ($null -eq $tunnelExe) { throw "official tunnel-client runtime archive did not contain tunnel-client.exe" }
+$tunnelExe = Get-ChildItem $extractDir -Filter "tunnel-client-runtime.exe" -Recurse | Select-Object -First 1
+if ($null -eq $tunnelExe) { throw "official tunnel-client runtime archive did not contain tunnel-client-runtime.exe" }
+# ShellWarden intentionally permits the runtime key only to an executable named tunnel-client.exe.
+# Rename the verified official runtime at packaging time rather than weakening that boundary.
 Copy-Item $tunnelExe.FullName (Join-Path $runtimeDir "tunnel-client.exe")
 
 $versionOutput = & (Join-Path $runtimeDir "tunnel-client.exe") --version 2>&1 | Out-String
