@@ -7,7 +7,7 @@ const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 test("approval inbox exposes every canonical approval state plus deterministic ordering", () => {
   for (const value of ["all", "pending", "allowed", "denied", "cancelled", "expired"]) {
-    assert.ok(app.includes(`value: "${value}"`), "missing approval status filter: " + value);
+    assert.ok(app.includes(`value: "${value}"`), `missing approval status filter: ${value}`);
   }
   assert.match(app, /type ApprovalSortOrder = "newest" \| "oldest"/);
   assert.match(app, /left\.requestedAtMs - right\.requestedAtMs/);
@@ -25,7 +25,7 @@ test("approval search stays client-side over operator-visible metadata", () => {
     "approval.risk.class",
     "approval.risk.reason",
   ]) {
-    assert.ok(app.includes(field), "search metadata missing: " + field);
+    assert.ok(app.includes(field), `search metadata missing: ${field}`);
   }
   assert.ok(!app.includes('invoke<ApprovalView[]>("approval_search"'));
 });
