@@ -498,7 +498,8 @@ fn apply_minimal_tunnel_environment(command: &mut Command, api_key: &str) {
 }
 
 fn validate_tunnel_binary(binary: &str) -> Result<(), String> {
-    let file_name = PathBuf::from(binary)
+    let normalized = binary.replace('\\', "/");
+    let file_name = std::path::Path::new(&normalized)
         .file_name()
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())

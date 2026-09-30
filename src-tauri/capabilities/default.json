@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Minimum capability set for the ShellWarden main window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "notification:default"
+  ]
 }

@@ -2026,11 +2026,11 @@ button {
 }
 
 .settings-note {
-  margin-top: 16px !important;
+  margin-top: 16px;
   padding: 11px;
   border: 1px solid #28332e;
   border-radius: 7px;
-  color: #71817a !important;
+  color: #71817a;
   background: #0d1512;
 }
 

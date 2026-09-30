@@ -26,11 +26,14 @@ use process_supervisor::ProcessSupervisor;
 use remote_access::{RemoteAccessPhase, RemoteAccessState, RemoteAccessStatus};
 use remote_mcp::{McpServerState, McpServerStatus};
 use risk_policy::{assess, RiskAssessment, RiskRequestInput};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, RunEvent, UserAttentionType, WindowEvent,
 };
+use tauri_plugin_notification::NotificationExt;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_ID: &str = "shellwarden-tray";
@@ -40,6 +43,58 @@ const MENU_ACTIVITY: &str = "activity";
 const MENU_APPROVALS: &str = "approvals";
 const MENU_REMOTE: &str = "remote";
 const MENU_EXIT: &str = "exit";
+
+const APPROVAL_NOTIFICATION_BODY: &str =
+    "A command is waiting for review. Open ShellWarden to inspect the request.";
+const REMOTE_ERROR_NOTIFICATION_BODY: &str =
+    "Remote access needs attention. Open ShellWarden for diagnostics.";
+
+#[derive(Default)]
+pub struct NotificationTracker {
+    notified_approvals: Mutex<HashSet<String>>,
+    last_notified_remote_error: Mutex<Option<String>>,
+}
+
+impl NotificationTracker {
+    pub fn should_notify_approval(&self, approval_id: &str) -> bool {
+        let mut set = self
+            .notified_approvals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        set.insert(approval_id.to_string())
+    }
+
+    pub fn should_notify_remote_error(
+        &self,
+        phase: RemoteAccessPhase,
+        error_msg: Option<&str>,
+    ) -> bool {
+        let mut last_error = self
+            .last_notified_remote_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if phase == RemoteAccessPhase::Error {
+            if let Some(msg) = error_msg {
+                if last_error.as_deref() != Some(msg) {
+                    *last_error = Some(msg.to_string());
+                    return true;
+                }
+            }
+        } else {
+            *last_error = None;
+        }
+        false
+    }
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
 
 #[tauri::command]
 fn execution_core_status(state: tauri::State<'_, ExecutionCoreState>) -> ExecutionCoreStatus {
@@ -201,12 +256,86 @@ fn remote_access_resume(
     state.resume(&app)
 }
 
-fn show_main_window(app: &AppHandle) {
+fn show_main_window_ref(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+#[cfg(windows)]
+fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = app.config().identifier.clone();
+    let activation_app = app.clone();
+    let activation_approval_id = approval_id.to_string();
+
+    Toast::new(&app_id)
+        .title("ShellWarden — Approval Needed")
+        .text1(APPROVAL_NOTIFICATION_BODY)
+        .on_activated(move |_| {
+            let app = activation_app.clone();
+            let approval_id = activation_approval_id.clone();
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-approval", approval_id);
+            });
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = app.config().identifier.clone();
+    let activation_app = app.clone();
+
+    Toast::new(&app_id)
+        .title("ShellWarden — Remote Access Error")
+        .text1(REMOTE_ERROR_NOTIFICATION_BODY)
+        .on_activated(move |_| {
+            let app = activation_app.clone();
+            let _ = activation_app.run_on_main_thread(move || {
+                show_main_window_ref(&app);
+                let _ = app.emit("shellwarden://open-settings", ());
+            });
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+fn show_approval_notification(app: &AppHandle, approval_id: &str) {
+    #[cfg(windows)]
+    if show_windows_approval_notification(app, approval_id).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Approval Needed")
+        .body(APPROVAL_NOTIFICATION_BODY)
+        .show();
+}
+
+fn show_remote_error_notification(app: &AppHandle) {
+    #[cfg(windows)]
+    if show_windows_remote_error_notification(app).is_ok() {
+        return;
+    }
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Remote Access Error")
+        .body(REMOTE_ERROR_NOTIFICATION_BODY)
+        .show();
 }
 
 fn running_execution_count(app: &AppHandle) -> usize {
@@ -316,9 +445,9 @@ fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            MENU_OPEN => show_main_window(app),
+            MENU_OPEN => show_main_window_ref(app),
             MENU_APPROVALS => {
-                show_main_window(app);
+                show_main_window_ref(app);
                 let _ = app.emit("shellwarden://open-approvals", ());
             }
             MENU_REMOTE => {
@@ -371,6 +500,7 @@ fn apply_approval_to_activity(app: &AppHandle, approval: &ApprovalView) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(LifecycleState::default())
         .manage(ProcessSupervisor::default())
         .manage(ExecutionActivityState::default())
@@ -380,7 +510,9 @@ pub fn run() {
         .manage(AuditState::default())
         .manage(McpServerState::default())
         .manage(RemoteAccessState::default())
+        .manage(NotificationTracker::default())
         .invoke_handler(tauri::generate_handler![
+            show_main_window,
             execution_core_status,
             execution_activity_snapshot,
             approval_snapshot,
@@ -476,6 +608,10 @@ pub fn run() {
                         ApprovalEvent::Changed { approval, .. } => {
                             apply_approval_to_activity(&approval_app, approval);
                             if approval.status == ApprovalStatus::Pending {
+                                let tracker = approval_app.state::<NotificationTracker>();
+                                if tracker.should_notify_approval(&approval.id) {
+                                    show_approval_notification(&approval_app, &approval.id);
+                                }
                                 if let Some(window) =
                                     approval_app.get_webview_window(MAIN_WINDOW_LABEL)
                                 {
@@ -500,6 +636,11 @@ pub fn run() {
             let remote_app = app.handle().clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
+                let status = remote_app.state::<RemoteAccessState>().status(&remote_app);
+                let tracker = remote_app.state::<NotificationTracker>();
+                if tracker.should_notify_remote_error(status.phase, status.error.as_deref()) {
+                    show_remote_error_notification(&remote_app);
+                }
                 let _ = update_tray_attention(&remote_app);
             });
 
@@ -538,4 +679,71 @@ pub fn run() {
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_notification_deduplicates_repeated_checks() {
+        let tracker = NotificationTracker::default();
+
+        assert!(tracker.should_notify_approval("approval-1"));
+        assert!(!tracker.should_notify_approval("approval-1"));
+        assert!(!tracker.should_notify_approval("approval-1"));
+
+        assert!(tracker.should_notify_approval("approval-2"));
+        assert!(!tracker.should_notify_approval("approval-2"));
+    }
+
+    #[test]
+    fn notification_bodies_are_operator_safe_and_payload_free() {
+        assert_eq!(
+            APPROVAL_NOTIFICATION_BODY,
+            "A command is waiting for review. Open ShellWarden to inspect the request."
+        );
+        assert_eq!(
+            REMOTE_ERROR_NOTIFICATION_BODY,
+            "Remote access needs attention. Open ShellWarden for diagnostics."
+        );
+
+        for sensitive in [
+            "rm -rf",
+            "CONTROL_PLANE_API_KEY",
+            "connection refused",
+            "openai-secure-mcp-tunnel",
+        ] {
+            assert!(!APPROVAL_NOTIFICATION_BODY.contains(sensitive));
+            assert!(!REMOTE_ERROR_NOTIFICATION_BODY.contains(sensitive));
+        }
+    }
+
+    #[test]
+    fn remote_error_notification_deduplicates_and_resets() {
+        let tracker = NotificationTracker::default();
+
+        assert!(!tracker.should_notify_remote_error(RemoteAccessPhase::Starting, None));
+
+        assert!(tracker.should_notify_remote_error(
+            RemoteAccessPhase::Error,
+            Some("connection refused")
+        ));
+        assert!(!tracker.should_notify_remote_error(
+            RemoteAccessPhase::Error,
+            Some("connection refused")
+        ));
+
+        assert!(tracker.should_notify_remote_error(
+            RemoteAccessPhase::Error,
+            Some("timeout waiting for tunnel")
+        ));
+
+        assert!(!tracker.should_notify_remote_error(RemoteAccessPhase::Connected, None));
+
+        assert!(tracker.should_notify_remote_error(
+            RemoteAccessPhase::Error,
+            Some("connection refused")
+        ));
+    }
 }
