@@ -47,10 +47,14 @@ test("history pagination labels remain correct for either sort direction", () =>
 test("only explicit notification focus can move the approvals viewport", () => {
   const scrollCalls = app.match(/scrollIntoView\(/g) ?? [];
   assert.equal(scrollCalls.length, 1);
-  assert.ok(app.includes('if (!focusedApprovalId || section !== "Approvals") return;'));
+  assert.ok(app.includes("if (!focusedApprovalId) return;"));
+  assert.ok(app.includes('setStatusFilter("all")'));
+  assert.ok(app.includes('setSearch("")'));
+  assert.ok(app.includes("setHistoryPage(targetPage)"));
   assert.ok(app.includes("target.focus({ preventScroll: true })"));
   assert.ok(app.includes('target.scrollIntoView({ behavior: "smooth", block: "center" })'));
-  assert.ok(app.includes("setFocusedApprovalId(null)"));
+  assert.ok(app.includes("onFocusedApprovalHandled();"));
+  assert.ok(app.includes("onFocusedApprovalHandled={clearFocusedApproval}"));
   assert.ok(app.includes("focusedApprovalId={focusedApprovalId}"));
 });
 
