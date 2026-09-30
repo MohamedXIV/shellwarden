@@ -11,7 +11,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Development version source initialized at `0.0.0-dev`.
 - Windows-first Tauri 2 + React/TypeScript application foundation with a dark control-center shell and roadmap navigation.
 - Baseline Biome linting/formatting, TypeScript checks, version consistency tests, frontend build verification, and GitHub Actions CI.
-- Deterministic release tooling that enforces `VERSION` consistency, promotes curated `[Unreleased]` notes, and prepares synchronized SemVer manifests with one command.
 - Repository version injection into the UI so the application displays the canonical `VERSION` value.
 - Native Windows tray lifecycle with Open and Exit actions plus visible placeholder status for running work and approvals.
 - Managed-process supervisor foundation that terminates registered child processes during ShellWarden shutdown.
@@ -35,7 +34,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Hard Exit now resolves unfinished activity as cancelled before terminating execution-core and managed process trees.
 
 ### Fixed
-- Explicit approval-notification navigation now releases its focus target after reaching the requested card, so later polling cannot pull the operator back to an old approval.
 - Secure MCP Tunnel startup now supplies the structured log format required by `tunnel-client` when an explicit log level is configured.
 
 ### Security
