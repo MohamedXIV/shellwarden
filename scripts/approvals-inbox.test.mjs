@@ -37,6 +37,13 @@ test("resolved approval rendering is page-bounded", () => {
   assert.ok(app.includes("approval-history-row"));
 });
 
+test("history pagination labels remain correct for either sort direction", () => {
+  assert.ok(app.includes("Previous page"));
+  assert.ok(app.includes("Next page"));
+  assert.ok(!app.includes("Newer page"));
+  assert.ok(!app.includes("Older page"));
+});
+
 test("only explicit notification focus can move the approvals viewport", () => {
   const scrollCalls = app.match(/scrollIntoView\(/g) ?? [];
   assert.equal(scrollCalls.length, 1);
