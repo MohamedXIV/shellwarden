@@ -44,19 +44,35 @@ struct BrokerProcess {
 }
 
 impl BrokerProcess {
-    fn spawn(repo_root: &Path) -> Result<Self, String> {
-        let python = env::var("SHELLWARDEN_PYTHON").unwrap_or_else(|_| "python".to_string());
-        let broker = repo_root.join("execution").join("broker.py");
+    fn spawn(repo_root: &Path, packaged_broker: Option<&Path>) -> Result<Self, String> {
+        let mut command = if let Some(broker) = packaged_broker {
+            if !broker.is_file() {
+                return Err(format!(
+                    "packaged execution broker not found: {}",
+                    broker.display()
+                ));
+            }
 
-        if !broker.is_file() {
-            return Err(format!("execution broker not found: {}", broker.display()));
-        }
+            let mut command = Command::new(broker);
+            if let Some(parent) = broker.parent() {
+                command.current_dir(parent);
+            }
+            command
+        } else {
+            let python =
+                env::var("SHELLWARDEN_PYTHON").unwrap_or_else(|_| "python".to_string());
+            let broker = repo_root.join("execution").join("broker.py");
 
-        let mut command = Command::new(python);
+            if !broker.is_file() {
+                return Err(format!("execution broker not found: {}", broker.display()));
+            }
+
+            let mut command = Command::new(python);
+            command.arg("-u").arg(&broker).current_dir(repo_root);
+            command
+        };
+
         command
-            .arg("-u")
-            .arg(&broker)
-            .current_dir(repo_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -269,14 +285,14 @@ impl ExecutionCoreState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub fn start(&self, repo_root: &Path) {
+    pub fn start(&self, repo_root: &Path, packaged_broker: Option<&Path>) {
         let mut inner = self.inner();
 
         if let Some(mut existing) = inner.broker.take() {
             existing.stop();
         }
 
-        match BrokerProcess::spawn(repo_root) {
+        match BrokerProcess::spawn(repo_root, packaged_broker) {
             Ok(broker) => {
                 inner.last_error = None;
                 inner.broker = Some(broker);
@@ -449,7 +465,7 @@ mod tests {
         let root = repository_root();
         let core = ExecutionCoreState::default();
         let activity = ExecutionActivityState::default();
-        core.start(&root);
+        core.start(&root, None);
 
         assert_eq!(
             core.status().detected_version.as_deref(),

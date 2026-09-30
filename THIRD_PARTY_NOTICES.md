@@ -33,3 +33,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+
+## OpenAI Secure MCP Tunnel runtime
+
+ShellWarden Windows installer builds bundle the official
+[openai/tunnel-client](https://github.com/openai/tunnel-client) runtime artifact.
+
+Pinned release: **v0.0.14** (windows-amd64 runtime archive)
+
+Copyright OpenAI
+
+Licensed under the Apache License 2.0. The upstream per-release license inventory and SPDX
+sidecar are bundled beside the runtime executable in the installed application resources.
+The packaging workflow verifies the pinned upstream SHA-256 before including the executable.

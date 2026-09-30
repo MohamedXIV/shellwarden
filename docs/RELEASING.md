@@ -111,3 +111,26 @@ Security fixes receive explicit `Security` changelog entries at the appropriate 
 ## Rule of thumb
 
 If a user would care that the behavior changed, or if the security/authority model changed, update `[Unreleased]` in the same PR.
+
+
+## Windows installer packaging
+
+The normal development build remains lightweight, while the Windows distribution build uses
+src-tauri/tauri.release.conf.json to enable the NSIS installer and bundle the two runtime
+components required by an installed ShellWarden:
+
+- a standalone shellwarden-broker.exe produced from execution/broker.py and the pinned
+  mcp-shell-server dependency, so an installed user does not need Python or pip;
+- the official OpenAI tunnel-client runtime pinned to v0.0.14, downloaded from the upstream
+  release and verified against the exact SHA-256 recorded in
+  scripts/prepare-windows-runtime.ps1.
+
+The tunnel archive's upstream license inventory and SPDX sidecar are bundled with the runtime.
+The default Settings flow uses this bundled runtime automatically. A user may still provide an
+explicit tunnel-client.exe path when intentionally testing another compatible build.
+
+GitHub's Package Windows installer workflow builds these runtime assets, runs the normal
+frontend/Rust verification, builds the NSIS package, silently installs it into a clean temporary
+directory, launches the installed application, confirms an uninstaller is present, and uninstalls
+it again while preserving a user-data marker. The resulting installer is uploaded as a workflow
+artifact. Issue #14 owns the later version bump/tag and first 0.1.0-alpha.1 release decision.

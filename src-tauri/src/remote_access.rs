@@ -15,9 +15,10 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 const TUNNEL_PROCESS_ID: &str = "openai-secure-mcp-tunnel";
+const BUNDLED_TUNNEL_RESOURCE: &str = "runtime/tunnel-client.exe";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,9 +121,17 @@ impl RemoteAccessState {
             return Err("CONTROL_PLANE_API_KEY must not be empty".to_string());
         }
 
-        let binary = binary
+        let requested_binary = binary
             .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.is_empty());
+        let bundled_binary = app
+            .path()
+            .resolve(BUNDLED_TUNNEL_RESOURCE, BaseDirectory::Resource)
+            .ok()
+            .filter(|path| path.is_file())
+            .map(|path| path.to_string_lossy().to_string());
+        let binary = requested_binary
+            .or(bundled_binary)
             .unwrap_or_else(|| "tunnel-client".to_string());
         validate_tunnel_binary(&binary)?;
 
@@ -260,7 +269,7 @@ impl RemoteAccessState {
 
         let mut child = command.spawn().map_err(|error| {
             format!(
-                "failed to launch '{}': {error}. Install tunnel-client or choose its binary path.",
+                "failed to launch '{}': {error}. Reinstall ShellWarden or choose a valid tunnel-client path.",
                 config.binary
             )
         })?;

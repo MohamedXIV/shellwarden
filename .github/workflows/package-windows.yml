@@ -1,0 +1,84 @@
+name: Package Windows installer
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/package-windows.yml'
+      - 'scripts/prepare-windows-runtime.ps1'
+      - 'scripts/packaging.test.mjs'
+      - 'src-tauri/tauri.release.conf.json'
+      - 'src-tauri/tauri.conf.json'
+      - 'src-tauri/src/execution_core.rs'
+      - 'src-tauri/src/lib.rs'
+      - 'src-tauri/src/remote_access.rs'
+      - 'execution/**'
+      - 'src/App.tsx'
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows:
+    name: Build and install-smoke NSIS
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: rustup toolchain install stable --profile minimal
+      - run: rustup default stable
+      - run: npm install
+      - name: Prepare pinned packaged runtimes
+        shell: pwsh
+        run: ./scripts/prepare-windows-runtime.ps1
+      - run: npm run check
+      - run: python execution/test_broker.py
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --manifest-path src-tauri/Cargo.toml pinned_upstream_executes_harmless_git_probe -- --ignored
+      - name: Build NSIS installer
+        run: npm run tauri:build -- --config src-tauri/tauri.release.conf.json
+      - name: Install, launch, and uninstall smoke
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'NSIS installer was not produced' }
+
+          $installDir = Join-Path $env:RUNNER_TEMP 'shellwarden-install-smoke'
+          Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "installer exited with $($install.ExitCode)" }
+
+          $appExe = Get-ChildItem $installDir -Filter 'shellwarden.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $appExe) { throw 'installed shellwarden.exe was not found' }
+          $uninstaller = Get-ChildItem $installDir -Filter '*uninstall*.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $uninstaller) { throw 'NSIS uninstaller was not found' }
+
+          $userDataDir = Join-Path $env:APPDATA 'io.github.mohamedxiv.shellwarden'
+          New-Item -ItemType Directory -Force -Path $userDataDir | Out-Null
+          $marker = Join-Path $userDataDir 'installer-smoke-user-data.txt'
+          Set-Content -Path $marker -Value 'preserve'
+
+          $app = Start-Process -FilePath $appExe.FullName -PassThru
+          Start-Sleep -Seconds 5
+          if ($app.HasExited) { throw "installed ShellWarden exited during launch smoke with $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+
+          $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "uninstaller exited with $($uninstall.ExitCode)" }
+          if (-not (Test-Path $marker)) { throw 'uninstall removed user-owned ShellWarden data' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shellwarden-windows-installer
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            packaging/runtime/tunnel-client-LICENSES.txt
+            packaging/runtime/tunnel-client.spdx.json

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "../execution/dist/shellwarden-broker.exe": "execution/shellwarden-broker.exe",
+      "../packaging/runtime/tunnel-client.exe": "runtime/tunnel-client.exe",
+      "../packaging/runtime/tunnel-client-LICENSES.txt": "runtime/tunnel-client-LICENSES.txt",
+      "../packaging/runtime/tunnel-client.spdx.json": "runtime/tunnel-client.spdx.json"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perUser"
+      }
+    }
+  }
+}

@@ -1089,7 +1089,7 @@ function SettingsView({
 }) {
   const [tunnelId, setTunnelId] = useState(remote.tunnelId ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [binary, setBinary] = useState("tunnel-client");
+  const [binary, setBinary] = useState("");
 
   useEffect(() => {
     if (remote.tunnelId) setTunnelId(remote.tunnelId);
@@ -1146,15 +1146,21 @@ function SettingsView({
           </label>
 
           <label>
-            <span>tunnel-client binary</span>
+            <span>Custom tunnel-client binary (optional)</span>
             <input
               autoComplete="off"
               onChange={(event) => setBinary(event.target.value)}
-              placeholder="tunnel-client"
+              placeholder="Bundled runtime (recommended)"
               spellCheck={false}
               value={binary}
             />
           </label>
+
+          <p className="settings-note">
+            The Windows installer includes the pinned tunnel runtime. Leave the custom binary
+            blank unless you intentionally want to override it with an executable named
+            tunnel-client.exe.
+          </p>
 
           <button
             className="settings-primary"
