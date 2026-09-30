@@ -1414,10 +1414,18 @@ button {
   padding: 13px;
 }
 
+.approval-filter-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .approval-search > span,
-.approval-filter-group > span {
+.approval-filter-group > legend {
   display: block;
   margin-bottom: 6px;
+  padding: 0;
   color: #5d6670;
   font-size: 8px;
   letter-spacing: 0.06em;
