@@ -652,7 +652,7 @@ function ApprovalsView({
                   onClick={() => setHistoryPage(Math.max(0, safeHistoryPage - 1))}
                   type="button"
                 >
-                  Newer page
+                  Previous page
                 </button>
                 <button
                   disabled={safeHistoryPage >= historyPageCount - 1}
@@ -661,7 +661,7 @@ function ApprovalsView({
                   }
                   type="button"
                 >
-                  Older page
+                  Next page
                 </button>
               </div>
             </div>
