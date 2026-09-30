@@ -12,9 +12,7 @@ name = "shellwarden_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-# Keep the Rust side on the exact Tauri 2.11 companion set while the JS API/CLI are 2.11.
-# Without a committed Cargo.lock, broad 2.x ranges can resolve incompatible 2.12 internals.
-tauri-build = { version = "=2.6.3", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -25,8 +23,8 @@ rmcp = { version = "3.0.1", features = ["server", "macros", "transport-streamabl
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 tokio-util = "0.7"
 axum = { version = "0.8", features = ["http1", "tokio"] }
-tauri = { version = "=2.11.6", features = ["tray-icon"] }
-tauri-runtime = "=2.11.3"
-tauri-runtime-wry = { version = "=2.11.4", default-features = false }
-tauri-macros = "=2.6.3"
-tauri-utils = "=2.9.3"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "~2.2.0"
+
+[target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "=0.7.3"
