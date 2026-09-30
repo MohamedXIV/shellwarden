@@ -484,10 +484,6 @@ function ApprovalsView({
     [filtered, sortOrder],
   );
 
-  useEffect(() => {
-    setHistoryPage(0);
-  }, [query, sortOrder, statusFilter]);
-
   const historyPageCount = Math.max(1, Math.ceil(history.length / APPROVAL_HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, historyPageCount - 1);
   const historyStart = safeHistoryPage * APPROVAL_HISTORY_PAGE_SIZE;
@@ -504,8 +500,19 @@ function ApprovalsView({
       ? [focusedHistory, ...pagedHistory]
       : pagedHistory;
 
+  const updateSearch = (next: string) => {
+    setSearch(next);
+    setHistoryPage(0);
+  };
+
   const updateStatusFilter = (next: ApprovalInboxStatus) => {
     setStatusFilter(next);
+    setHistoryPage(0);
+  };
+
+  const updateSortOrder = (next: ApprovalSortOrder) => {
+    setSortOrder(next);
+    setHistoryPage(0);
   };
 
   return (
@@ -536,7 +543,7 @@ function ApprovalsView({
         <label className="approval-search">
           <span>Search approvals</span>
           <input
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => updateSearch(event.target.value)}
             placeholder="command, requester, cwd, session, status…"
             type="search"
             value={search}
@@ -568,7 +575,7 @@ function ApprovalsView({
                 aria-pressed={sortOrder === order}
                 className={sortOrder === order ? "active" : ""}
                 key={order}
-                onClick={() => setSortOrder(order)}
+                onClick={() => updateSortOrder(order)}
                 type="button"
               >
                 {order === "newest" ? "Newest" : "Oldest"}
