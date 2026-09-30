@@ -56,7 +56,7 @@ test("installed builds prefer packaged broker and tunnel runtimes without removi
   assert.match(executionCore, /SHELLWARDEN_PYTHON/);
   assert.match(remote, /runtime\/tunnel-client\.exe/);
   assert.match(remote, /unwrap_or_else\(\|\| "tunnel-client"\.to_string\(\)\)/);
-  assert.match(app, /useState\("")/);
+  assert.ok(app.includes('useState("")'));
   assert.match(app, /Bundled runtime \(recommended\)/);
 });
 
