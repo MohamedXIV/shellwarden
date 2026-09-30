@@ -26,7 +26,7 @@ use process_supervisor::ProcessSupervisor;
 use remote_access::{RemoteAccessPhase, RemoteAccessState, RemoteAccessStatus};
 use remote_mcp::{McpServerState, McpServerStatus};
 use risk_policy::{assess, RiskAssessment, RiskRequestInput};
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -48,55 +48,11 @@ const APPROVAL_NOTIFICATION_BODY: &str =
     "A command is waiting for review. Open ShellWarden to inspect the request.";
 const REMOTE_ERROR_NOTIFICATION_BODY: &str =
     "Remote access needs attention. Open ShellWarden for diagnostics.";
-const NOTIFICATION_DIAGNOSTIC_LIMIT: usize = 12;
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NotificationKind {
-    Approval,
-    RemoteError,
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NotificationBackend {
-    NotifyRust,
-    TauriPlugin,
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NotificationAumidMode {
-    Shellwarden,
-    PowershellFallback,
-    PluginManaged,
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum NotificationDeliveryResult {
-    Success,
-    Error,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotificationDeliveryDiagnostic {
-    timestamp_ms: u64,
-    notification_kind: NotificationKind,
-    primary_backend: NotificationBackend,
-    primary_aumid_mode: NotificationAumidMode,
-    primary_result: NotificationDeliveryResult,
-    fallback_backend: Option<NotificationBackend>,
-    fallback_aumid_mode: Option<NotificationAumidMode>,
-    fallback_result: Option<NotificationDeliveryResult>,
-}
 
 #[derive(Default)]
 pub struct NotificationTracker {
     notified_approvals: Mutex<HashSet<String>>,
     last_notified_remote_error: Mutex<Option<String>>,
-    delivery_diagnostics: Mutex<VecDeque<NotificationDeliveryDiagnostic>>,
 }
 
 impl NotificationTracker {
@@ -129,38 +85,6 @@ impl NotificationTracker {
         }
         false
     }
-
-    fn record_delivery(&self, diagnostic: NotificationDeliveryDiagnostic) {
-        let mut diagnostics = self
-            .delivery_diagnostics
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        diagnostics.push_front(diagnostic);
-        diagnostics.truncate(NOTIFICATION_DIAGNOSTIC_LIMIT);
-    }
-
-    fn delivery_diagnostics(&self) -> Vec<NotificationDeliveryDiagnostic> {
-        self.delivery_diagnostics
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .cloned()
-            .collect()
-    }
-}
-
-fn notification_timestamp_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-#[tauri::command]
-fn notification_delivery_diagnostics(
-    state: tauri::State<'_, NotificationTracker>,
-) -> Vec<NotificationDeliveryDiagnostic> {
-    state.delivery_diagnostics()
 }
 
 #[tauri::command]
@@ -341,244 +265,77 @@ fn show_main_window_ref(app: &AppHandle) {
 }
 
 #[cfg(windows)]
-fn windows_path_key(path: &std::path::Path) -> String {
-    let normalized = path.as_os_str().to_string_lossy().replace('/', "\\");
-    let without_verbatim_prefix = if let Some(rest) = normalized.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{rest}")
-    } else if let Some(rest) = normalized.strip_prefix(r"\\?\") {
-        rest.to_string()
-    } else {
-        normalized
-    };
+fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
 
-    without_verbatim_prefix
-        .trim_end_matches('\\')
-        .to_ascii_lowercase()
-}
-
-#[cfg(windows)]
-fn is_direct_cargo_build(executable: &std::path::Path, build_out_dir: &std::path::Path) -> bool {
-    // OUT_DIR is <target-dir>/<profile>/build/<crate-hash>/out.
-    // current_exe() is canonicalized by Tauri and can carry a Windows verbatim
-    // prefix (\\?\C:\...), while OUT_DIR usually does not. Compare homogeneous,
-    // case-insensitive path keys and require a directory boundary.
-    let Some(target_dir) = build_out_dir.ancestors().nth(4) else {
-        return false;
-    };
-
-    let executable = windows_path_key(executable);
-    let target_dir = windows_path_key(target_dir);
-
-    executable == target_dir
-        || executable
-            .strip_prefix(&target_dir)
-            .is_some_and(|suffix| suffix.starts_with('\\'))
-}
-
-#[cfg(windows)]
-fn show_windows_notification<F>(
-    app: &AppHandle,
-    title: &str,
-    body: &str,
-    on_activate: F,
-) -> (NotificationAumidMode, Result<(), String>)
-where
-    F: FnOnce(AppHandle) + Send + 'static,
-{
-    use notify_rust::{Notification, NotificationResponse};
-
-    let mut notification = Notification::new();
-    notification.summary(title).body(body);
-
-    let executable = match tauri::utils::platform::current_exe() {
-        Ok(executable) => executable,
-        Err(error) => {
-            return (
-                NotificationAumidMode::Shellwarden,
-                Err(error.to_string()),
-            )
-        }
-    };
-    let build_out_dir = std::path::Path::new(env!("OUT_DIR"));
-    let aumid_mode = if is_direct_cargo_build(&executable, build_out_dir) {
-        // Direct Cargo builds do not have their own registered Start Menu shortcut.
-        // Leaving app_id unset makes notify-rust use its PowerShell AUMID fallback.
-        NotificationAumidMode::PowershellFallback
-    } else {
-        notification.app_id(&app.config().identifier);
-        NotificationAumidMode::Shellwarden
-    };
-
-    let handle = match notification.show() {
-        Ok(handle) => handle,
-        Err(error) => return (aumid_mode, Err(error.to_string())),
-    };
+    let app_id = app.config().identifier.clone();
     let activation_app = app.clone();
-
-    std::thread::spawn(move || {
-        let _ = handle.wait_for_response(move |response: &NotificationResponse| {
-            if matches!(
-                response,
-                NotificationResponse::Default | NotificationResponse::Action(_)
-            ) {
-                on_activate(activation_app);
-            }
-        });
-    });
-
-    (aumid_mode, Ok(()))
-}
-
-#[cfg(windows)]
-fn show_windows_approval_notification(
-    app: &AppHandle,
-    approval_id: &str,
-) -> (NotificationAumidMode, Result<(), String>) {
     let activation_approval_id = approval_id.to_string();
 
-    show_windows_notification(
-        app,
-        "ShellWarden — Approval Needed",
-        APPROVAL_NOTIFICATION_BODY,
-        move |activation_app| {
+    Toast::new(&app_id)
+        .title("ShellWarden — Approval Needed")
+        .text1(APPROVAL_NOTIFICATION_BODY)
+        .on_activated(move |_| {
             let app = activation_app.clone();
-            let approval_id = activation_approval_id;
+            let approval_id = activation_approval_id.clone();
             let _ = activation_app.run_on_main_thread(move || {
                 show_main_window_ref(&app);
                 let _ = app.emit("shellwarden://open-approval", approval_id);
             });
-        },
-    )
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(windows)]
-fn show_windows_remote_error_notification(
-    app: &AppHandle,
-) -> (NotificationAumidMode, Result<(), String>) {
-    show_windows_notification(
-        app,
-        "ShellWarden — Remote Access Error",
-        REMOTE_ERROR_NOTIFICATION_BODY,
-        move |activation_app| {
+fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = app.config().identifier.clone();
+    let activation_app = app.clone();
+
+    Toast::new(&app_id)
+        .title("ShellWarden — Remote Access Error")
+        .text1(REMOTE_ERROR_NOTIFICATION_BODY)
+        .on_activated(move |_| {
             let app = activation_app.clone();
             let _ = activation_app.run_on_main_thread(move || {
                 show_main_window_ref(&app);
                 let _ = app.emit("shellwarden://open-settings", ());
             });
-        },
-    )
-}
-
-fn record_notification_delivery(
-    app: &AppHandle,
-    notification_kind: NotificationKind,
-    primary_aumid_mode: NotificationAumidMode,
-    primary_result: NotificationDeliveryResult,
-    fallback_result: Option<NotificationDeliveryResult>,
-) {
-    app.state::<NotificationTracker>()
-        .record_delivery(NotificationDeliveryDiagnostic {
-            timestamp_ms: notification_timestamp_ms(),
-            notification_kind,
-            primary_backend: NotificationBackend::NotifyRust,
-            primary_aumid_mode,
-            primary_result,
-            fallback_backend: fallback_result.map(|_| NotificationBackend::TauriPlugin),
-            fallback_aumid_mode: fallback_result.map(|_| NotificationAumidMode::PluginManaged),
-            fallback_result,
-        });
+            Ok(())
+        })
+        .show()
+        .map_err(|error| error.to_string())
 }
 
 fn show_approval_notification(app: &AppHandle, approval_id: &str) {
     #[cfg(windows)]
-    {
-        let (aumid_mode, primary) = show_windows_approval_notification(app, approval_id);
-        if primary.is_ok() {
-            record_notification_delivery(
-                app,
-                NotificationKind::Approval,
-                aumid_mode,
-                NotificationDeliveryResult::Success,
-                None,
-            );
-            return;
-        }
-
-        let fallback = app
-            .notification()
-            .builder()
-            .title("ShellWarden — Approval Needed")
-            .body(APPROVAL_NOTIFICATION_BODY)
-            .show();
-        record_notification_delivery(
-            app,
-            NotificationKind::Approval,
-            aumid_mode,
-            NotificationDeliveryResult::Error,
-            Some(if fallback.is_ok() {
-                NotificationDeliveryResult::Success
-            } else {
-                NotificationDeliveryResult::Error
-            }),
-        );
+    if show_windows_approval_notification(app, approval_id).is_ok() {
         return;
     }
 
-    #[cfg(not(windows))]
-    {
-        let _ = app
-            .notification()
-            .builder()
-            .title("ShellWarden — Approval Needed")
-            .body(APPROVAL_NOTIFICATION_BODY)
-            .show();
-    }
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Approval Needed")
+        .body(APPROVAL_NOTIFICATION_BODY)
+        .show();
 }
 
 fn show_remote_error_notification(app: &AppHandle) {
     #[cfg(windows)]
-    {
-        let (aumid_mode, primary) = show_windows_remote_error_notification(app);
-        if primary.is_ok() {
-            record_notification_delivery(
-                app,
-                NotificationKind::RemoteError,
-                aumid_mode,
-                NotificationDeliveryResult::Success,
-                None,
-            );
-            return;
-        }
-
-        let fallback = app
-            .notification()
-            .builder()
-            .title("ShellWarden — Remote Access Error")
-            .body(REMOTE_ERROR_NOTIFICATION_BODY)
-            .show();
-        record_notification_delivery(
-            app,
-            NotificationKind::RemoteError,
-            aumid_mode,
-            NotificationDeliveryResult::Error,
-            Some(if fallback.is_ok() {
-                NotificationDeliveryResult::Success
-            } else {
-                NotificationDeliveryResult::Error
-            }),
-        );
+    if show_windows_remote_error_notification(app).is_ok() {
         return;
     }
 
-    #[cfg(not(windows))]
-    {
-        let _ = app
-            .notification()
-            .builder()
-            .title("ShellWarden — Remote Access Error")
-            .body(REMOTE_ERROR_NOTIFICATION_BODY)
-            .show();
-    }
+    let _ = app
+        .notification()
+        .builder()
+        .title("ShellWarden — Remote Access Error")
+        .body(REMOTE_ERROR_NOTIFICATION_BODY)
+        .show();
 }
 
 fn running_execution_count(app: &AppHandle) -> usize {
@@ -773,7 +530,6 @@ pub fn run() {
             policy_reset_persistent,
             policy_reset_directory_scoped,
             audit_entries,
-            notification_delivery_diagnostics,
             mcp_server_status,
             remote_access_status,
             remote_access_connect,
@@ -939,28 +695,6 @@ mod tests {
 
         assert!(tracker.should_notify_approval("approval-2"));
         assert!(!tracker.should_notify_approval("approval-2"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn direct_cargo_build_detection_normalizes_verbatim_current_exe() {
-        use std::path::Path;
-
-        let build_out = Path::new(
-            r"C:\Users\moham\AppData\Local\Temp\shellwarden-pr35-c1e5aaca\src-tauri\target-acceptance\release\build\shellwarden-abc\out",
-        );
-        let canonical_exe = Path::new(
-            r"\\?\C:\Users\moham\AppData\Local\Temp\shellwarden-pr35-c1e5aaca\src-tauri\target-acceptance\release\shellwarden.exe",
-        );
-        let ordinary_exe = Path::new(
-            r"C:\Users\moham\AppData\Local\Temp\shellwarden-pr35-c1e5aaca\src-tauri\target-acceptance\release\shellwarden.exe",
-        );
-        let installed_exe =
-            Path::new(r"C:\Program Files\ShellWarden\shellwarden.exe");
-
-        assert!(is_direct_cargo_build(canonical_exe, build_out));
-        assert!(is_direct_cargo_build(ordinary_exe, build_out));
-        assert!(!is_direct_cargo_build(installed_exe, build_out));
     }
 
     #[test]
