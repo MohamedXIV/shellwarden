@@ -550,9 +550,9 @@ function ApprovalsView({
           />
         </label>
 
-        <div className="approval-filter-group">
-          <span>Status</span>
-          <div className="approval-filter-buttons" role="group" aria-label="Filter approvals by status">
+        <fieldset className="approval-filter-group">
+          <legend>Status</legend>
+          <div className="approval-filter-buttons">
             {approvalStatusFilters.map((option) => (
               <button
                 aria-pressed={statusFilter === option.value}
@@ -565,11 +565,11 @@ function ApprovalsView({
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
 
-        <div className="approval-filter-group">
-          <span>Order</span>
-          <div className="approval-filter-buttons" role="group" aria-label="Sort approvals">
+        <fieldset className="approval-filter-group">
+          <legend>Order</legend>
+          <div className="approval-filter-buttons">
             {(["newest", "oldest"] as ApprovalSortOrder[]).map((order) => (
               <button
                 aria-pressed={sortOrder === order}
@@ -582,7 +582,7 @@ function ApprovalsView({
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
       </section>
 
       <section className="approval-queue" aria-labelledby="approval-pending-heading">
