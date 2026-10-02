@@ -44,7 +44,7 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo test --manifest-path src-tauri/Cargo.toml pinned_upstream_executes_harmless_git_probe -- --ignored
       - name: Build NSIS installer
-        run: npm run tauri:build -- --config src-tauri/tauri.release.conf.json
+        run: npm run tauri:build:release
       - name: Install, launch, and uninstall smoke
         shell: pwsh
         run: |
