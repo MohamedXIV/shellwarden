@@ -1,10 +1,33 @@
 :root {
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #e7e9ee;
+  color: var(--text-primary);
   background: #090b0e;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /* Shared type scale: keep dense operator data readable at normal Windows scaling. */
+  --type-micro: 10px;
+  --type-meta: 11px;
+  --type-label: 12px;
+  --type-body: 13px;
+  --type-body-strong: 14px;
+  --type-heading: 16px;
+  --type-icon-sm: 18px;
+  --type-icon: 20px;
+  --type-metric: 21px;
+  --type-section-title: 34px;
+  --type-page-title: 36px;
+  --type-display: clamp(30px, 4vw, 44px);
+  --leading-tight: 1.35;
+  --leading-body: 1.55;
+  --leading-relaxed: 1.65;
+
+  --text-primary: #e7e9ee;
+  --text-strong: #c8ced5;
+  --text-secondary: #9aa3ad;
+  --text-muted: #7b8590;
+  --text-dim: #68727d;
 }
 
 * {
@@ -23,6 +46,8 @@ body,
 
 body {
   overflow: hidden;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   background:
     radial-gradient(circle at 72% -20%, rgba(61, 111, 91, 0.13), transparent 34%),
     #090b0e;
@@ -70,7 +95,7 @@ button {
   color: #87d6b8;
   background: #11221c;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-body);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -81,14 +106,14 @@ button {
 }
 
 .brand strong {
-  font-size: 14px;
+  font-size: var(--type-heading);
   letter-spacing: -0.01em;
 }
 
 .brand span {
   margin-top: 3px;
-  color: #747c88;
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: var(--type-body);
 }
 
 .nav-list {
@@ -103,14 +128,14 @@ button {
   grid-template-columns: 24px 1fr auto;
   align-items: center;
   width: 100%;
-  min-height: 39px;
+  min-height: 42px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 8px;
-  color: #858c96;
+  color: var(--text-muted);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
   text-align: left;
 }
 
@@ -128,7 +153,7 @@ button {
 .nav-glyph {
   color: #68716f;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 14px;
+  font-size: var(--type-heading);
 }
 
 .nav-item.active .nav-glyph {
@@ -141,7 +166,7 @@ button {
   border-radius: 99px;
   color: #697078;
   background: #1b1f24;
-  font-size: 10px;
+  font-size: var(--type-label);
   text-align: center;
 }
 
@@ -171,14 +196,14 @@ button {
 
 .local-only strong {
   color: #afb6bd;
-  font-size: 11px;
+  font-size: var(--type-body);
   font-weight: 600;
 }
 
 .local-only span {
   margin-top: 2px;
-  color: #656c75;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--type-label);
 }
 
 .status-dot {
@@ -200,9 +225,9 @@ button {
 }
 
 .version {
-  color: #515861;
+  color: var(--text-dim);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .main-area {
@@ -229,11 +254,11 @@ button {
   display: flex;
   gap: 7px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
 }
 
 .crumb {
-  color: #555d67;
+  color: var(--text-dim);
 }
 
 .topbar strong {
@@ -256,22 +281,22 @@ button {
   padding: 5px 8px;
   border: 1px solid #282d33;
   border-radius: 6px;
-  color: #7d858e;
+  color: var(--text-muted);
   background: #111419;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--type-meta);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .pause-button {
-  min-height: 32px;
+  min-height: 34px;
   padding: 0 11px;
   border: 1px solid #2b3036;
   border-radius: 7px;
-  color: #626973;
+  color: var(--text-dim);
   background: #12151a;
-  font-size: 11px;
+  font-size: var(--type-body);
 }
 
 .pause-button:disabled {
@@ -303,7 +328,7 @@ button {
 .section-kicker {
   color: #5fae91;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--type-meta);
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -312,7 +337,7 @@ button {
 .page-heading h1,
 .section-placeholder h1 {
   margin: 9px 0;
-  font-size: clamp(29px, 4vw, 44px);
+  font-size: var(--type-display);
   font-weight: 570;
   letter-spacing: -0.045em;
 }
@@ -320,8 +345,8 @@ button {
 .hero-copy {
   max-width: 650px;
   margin: 0;
-  color: #8e959f;
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: var(--type-body-strong);
   line-height: 1.7;
 }
 
@@ -348,13 +373,13 @@ button {
 
 .access-state strong {
   color: #c7ccd2;
-  font-size: 11px;
+  font-size: var(--type-body);
 }
 
 .access-state span {
   margin-top: 5px;
-  color: #666e77;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--type-label);
   line-height: 1.45;
 }
 
@@ -397,14 +422,14 @@ button {
 }
 
 .health-card span {
-  color: #68717b;
-  font-size: 10px;
+  color: var(--text-dim);
+  font-size: var(--type-label);
 }
 
 .health-card strong {
   margin-top: 5px;
   color: #c5cad0;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
   font-weight: 580;
 }
 
@@ -435,8 +460,8 @@ button {
 }
 
 .metric-strip span {
-  color: #666e77;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -445,14 +470,14 @@ button {
   margin-top: 4px;
   color: #d7dbe0;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 21px;
+  font-size: var(--type-metric);
   font-weight: 570;
 }
 
 .metric-strip small {
   margin-top: 3px;
-  color: #555d66;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .metric-strip article.attention {
@@ -503,7 +528,7 @@ button {
 .page-heading h2 {
   margin: 7px 0 0;
   color: #c8cdd3;
-  font-size: 14px;
+  font-size: var(--type-heading);
   font-weight: 580;
 }
 
@@ -513,7 +538,7 @@ button {
   color: #75b99f;
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .text-button:hover {
@@ -617,13 +642,13 @@ button {
 
 .execution-title-row strong {
   color: #d2d6db;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
   font-weight: 620;
 }
 
 .status-badge {
   padding: 3px 6px;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .status-badge.status-running {
@@ -653,13 +678,14 @@ button {
 }
 
 .command-line {
+  line-height: var(--leading-body);
   display: block;
   max-width: 100%;
   margin-top: 6px;
   overflow: hidden;
-  color: #9198a1;
+  color: var(--text-secondary);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -677,13 +703,13 @@ button {
 .execution-time strong {
   color: #bec4ca;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-body);
 }
 
 .execution-time span {
   margin-top: 3px;
-  color: #515963;
-  font-size: 8px;
+  color: var(--text-dim);
+  font-size: var(--type-micro);
   text-transform: uppercase;
 }
 
@@ -693,19 +719,19 @@ button {
   gap: 7px 12px;
   align-items: center;
   margin-top: 12px;
-  color: #626a74;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .execution-id {
   margin-left: auto;
-  color: #454c54;
+  color: var(--text-dim);
   font-family: "Cascadia Code", Consolas, monospace;
 }
 
 .risk-badge {
   padding: 3px 6px;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .risk-low {
@@ -745,15 +771,15 @@ button {
 }
 
 .risk-reason span {
-  color: #68727b;
+  color: var(--text-dim);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .risk-reason p {
   margin: 0;
-  color: #747c85;
-  font-size: 9px;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
   line-height: 1.45;
 }
 
@@ -766,9 +792,9 @@ button {
   display: flex;
   justify-content: space-between;
   padding: 10px 0 0;
-  color: #68717a;
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--type-meta);
   list-style: none;
 }
 
@@ -785,7 +811,7 @@ button {
   margin-bottom: 5px;
   color: #5e786e;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .stream-block.stderr > span {
@@ -799,11 +825,11 @@ button {
   padding: 10px;
   border: 1px solid #1d2227;
   border-radius: 7px;
-  color: #939ba4;
+  color: var(--text-secondary);
   background: #080a0d;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
-  line-height: 1.55;
+  font-size: var(--type-meta);
+  line-height: var(--leading-body);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -816,8 +842,8 @@ button {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid #20252a;
-  color: #525a63;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .empty-state {
@@ -830,8 +856,8 @@ button {
 
 .activity-empty strong {
   margin-bottom: 6px;
-  color: #8b939c;
-  font-size: 11px;
+  color: var(--text-secondary);
+  font-size: var(--type-body);
   font-weight: 580;
 }
 
@@ -839,7 +865,7 @@ button {
   margin-bottom: 12px;
   color: #46514e;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 20px;
+  font-size: var(--type-icon);
 }
 
 .empty-state p,
@@ -849,9 +875,9 @@ button {
 .page-heading p {
   max-width: 540px;
   margin: 0;
-  color: #69717a;
-  font-size: 10px;
-  line-height: 1.65;
+  color: var(--text-dim);
+  font-size: var(--type-label);
+  line-height: var(--leading-relaxed);
 }
 
 .compact-empty {
@@ -867,7 +893,7 @@ button {
 
 .compact-empty > span {
   color: #4c5652;
-  font-size: 18px;
+  font-size: var(--type-icon-sm);
 }
 
 .decision-list {
@@ -893,7 +919,7 @@ button {
   padding: 3px 5px;
   border-radius: 5px;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
   text-align: center;
   text-transform: uppercase;
 }
@@ -920,23 +946,23 @@ button {
 
 .decision-row strong {
   color: #acb3ba;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .decision-row div > span {
   max-width: 180px;
   margin-top: 3px;
   overflow: hidden;
-  color: #565e67;
-  font-size: 8px;
+  color: var(--text-dim);
+  font-size: var(--type-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .decision-rule {
-  color: #4f575f;
+  color: var(--text-dim);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .build-panel p {
@@ -950,8 +976,8 @@ button {
   margin-top: 25px;
   padding-top: 12px;
   border-top: 1px solid #22272d;
-  color: #656d76;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .milestone-row code {
@@ -969,7 +995,7 @@ button {
   border-radius: 8px;
   color: #ba7474;
   background: rgba(51, 20, 20, 0.28);
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .inline-error.large {
@@ -992,14 +1018,14 @@ button {
 
 .page-heading h1 {
   margin-bottom: 5px;
-  font-size: 36px;
+  font-size: var(--type-page-title);
 }
 
 .activity-summary {
   display: flex;
   gap: 16px;
-  color: #626a73;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .activity-summary span {
@@ -1009,7 +1035,7 @@ button {
 .activity-summary strong {
   color: #aeb5bc;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-body);
 }
 
 .activity-surface {
@@ -1021,7 +1047,7 @@ button {
 }
 
 .section-placeholder h1 {
-  font-size: 34px;
+  font-size: var(--type-section-title);
 }
 
 @media (max-width: 980px) {
@@ -1093,14 +1119,14 @@ button {
 .approval-count strong {
   color: #c7cdd3;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 21px;
+  font-size: var(--type-metric);
   font-weight: 580;
 }
 
 .approval-count span {
   margin-top: 2px;
-  color: #626a73;
-  font-size: 8px;
+  color: var(--text-dim);
+  font-size: var(--type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1161,7 +1187,7 @@ button {
   border: 1px solid #30363d;
   border-radius: 5px;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
   letter-spacing: 0.04em;
 }
 
@@ -1196,7 +1222,7 @@ button {
   overflow: hidden;
   color: #d0d5da;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1211,14 +1237,14 @@ button {
   display: block;
   color: #b8bec5;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-body);
 }
 
 .approval-age span {
   display: block;
   margin-top: 3px;
-  color: #565e67;
-  font-size: 8px;
+  color: var(--text-dim);
+  font-size: var(--type-micro);
   text-transform: uppercase;
 }
 
@@ -1227,8 +1253,8 @@ button {
   flex-wrap: wrap;
   gap: 6px 14px;
   margin-top: 13px;
-  color: #626a74;
-  font-size: 9px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
 }
 
 .approval-expiry {
@@ -1251,7 +1277,7 @@ button {
 .approval-warning strong {
   display: block;
   color: #b5bcc3;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .approval-warning.critical strong {
@@ -1262,8 +1288,8 @@ button {
   max-width: 820px;
   margin: 6px 0 0;
   color: #747d86;
-  font-size: 10px;
-  line-height: 1.55;
+  font-size: var(--type-label);
+  line-height: var(--leading-body);
 }
 
 .scope-grid {
@@ -1312,7 +1338,7 @@ button {
 .scope-title {
   display: block;
   color: #c5cbd1;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 620;
 }
 
@@ -1324,7 +1350,7 @@ button {
   display: block;
   margin-top: 5px;
   color: #656e77;
-  font-size: 9px;
+  font-size: var(--type-meta);
   line-height: 1.45;
 }
 
@@ -1337,7 +1363,7 @@ button {
 .approval-terminal span {
   display: block;
   color: #879099;
-  font-size: 9px;
+  font-size: var(--type-meta);
   font-weight: 620;
 }
 
@@ -1345,7 +1371,7 @@ button {
   max-width: 760px;
   margin: 5px 0 0;
   color: #5f6871;
-  font-size: 9px;
+  font-size: var(--type-meta);
   line-height: 1.5;
 }
 
@@ -1361,15 +1387,15 @@ button {
 .approval-empty strong {
   margin-bottom: 7px;
   color: #939ba3;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
 }
 
 .approval-empty p {
   max-width: 530px;
   margin: 0;
   color: #606973;
-  font-size: 10px;
-  line-height: 1.65;
+  font-size: var(--type-label);
+  line-height: var(--leading-relaxed);
 }
 
 .approval-recent {
@@ -1386,7 +1412,7 @@ button {
 
 .approval-section-heading > span:last-child {
   color: #555e67;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .approval-list.compact .approval-card {
@@ -1427,7 +1453,7 @@ button {
   margin-bottom: 6px;
   padding: 0;
   color: #5d6670;
-  font-size: 8px;
+  font-size: var(--type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1443,7 +1469,7 @@ button {
   color: #c4cad0;
   background: #090c0f;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .approval-search input:focus {
@@ -1467,7 +1493,7 @@ button {
   background: #0c0f13;
   cursor: pointer;
   font: inherit;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .approval-filter-buttons button.active {
@@ -1491,7 +1517,7 @@ button {
 .approval-section-heading > div h2 {
   margin: 5px 0 0;
   color: #b7bec5;
-  font-size: 14px;
+  font-size: var(--type-heading);
   font-weight: 600;
 }
 
@@ -1534,7 +1560,7 @@ button {
   overflow: hidden;
   color: #adb4bb;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1545,7 +1571,7 @@ button {
   gap: 5px 11px;
   margin-top: 6px;
   color: #59636d;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .approval-history-result {
@@ -1560,7 +1586,7 @@ button {
 
 .approval-history-result strong {
   color: #939ca5;
-  font-size: 9px;
+  font-size: var(--type-meta);
   font-weight: 600;
 }
 
@@ -1568,14 +1594,14 @@ button {
   margin-top: 4px;
   color: #535c65;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .approval-history-empty {
   margin-top: 12px;
   padding: 18px;
   color: #5d6670;
-  font-size: 9px;
+  font-size: var(--type-meta);
   text-align: center;
 }
 
@@ -1586,7 +1612,7 @@ button {
   justify-content: space-between;
   margin-top: 10px;
   color: #58616b;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .approval-history-pagination > div {
@@ -1670,13 +1696,13 @@ button {
   border-radius: 7px;
   color: #69727b;
   background: #0d1014;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .management-metrics strong {
   color: #c2c8ce;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
 }
 
 .management-toolbar {
@@ -1698,7 +1724,7 @@ button {
   color: #c0c6cc;
   background: #0a0d10;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .management-toolbar input:focus {
@@ -1720,10 +1746,10 @@ button {
   padding: 8px 10px;
   border: 0;
   border-right: 1px solid #292f35;
-  color: #69717a;
+  color: var(--text-dim);
   background: #0c0f13;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--type-meta);
   text-transform: capitalize;
 }
 
@@ -1752,7 +1778,7 @@ button {
   color: #828a93;
   background: #0d1014;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .permission-reset-strip button:disabled,
@@ -1787,7 +1813,7 @@ button {
   border-radius: 8px;
   color: #a77a7a;
   background: #181010;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .permission-list,
@@ -1842,7 +1868,7 @@ button {
   border-radius: 5px;
   color: #717a83;
   background: #0a0d10;
-  font-size: 8px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
 }
 
@@ -1862,7 +1888,7 @@ button {
   display: block;
   margin-top: 10px;
   color: #d0d5da;
-  font-size: 13px;
+  font-size: var(--type-body-strong);
 }
 
 .permission-card-head code {
@@ -1870,7 +1896,7 @@ button {
   margin-top: 4px;
   color: #4f5861;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .permission-details {
@@ -1895,7 +1921,7 @@ button {
 
 .permission-details span {
   color: #555e67;
-  font-size: 8px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
 }
 
@@ -1903,7 +1929,7 @@ button {
   margin-top: 5px;
   overflow: hidden;
   color: #858d96;
-  font-size: 9px;
+  font-size: var(--type-meta);
   font-weight: 560;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1913,7 +1939,7 @@ button {
   margin: 10px 0 0;
   color: #59626b;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .management-empty {
@@ -1928,15 +1954,15 @@ button {
 .management-empty strong {
   margin-bottom: 7px;
   color: #929aa3;
-  font-size: 12px;
+  font-size: var(--type-body-strong);
 }
 
 .management-empty p {
   max-width: 540px;
   margin: 0;
   color: #606973;
-  font-size: 10px;
-  line-height: 1.65;
+  font-size: var(--type-label);
+  line-height: var(--leading-relaxed);
 }
 
 .audit-card {
@@ -1954,7 +1980,7 @@ button {
 .audit-title strong {
   color: #c7cdd2;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 560;
 }
 
@@ -1972,7 +1998,7 @@ button {
   flex: 0 0 auto;
   color: #535c65;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .audit-details,
@@ -1983,7 +2009,7 @@ button {
   flex-wrap: wrap;
   margin-top: 10px;
   color: #626b74;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .audit-result {
@@ -1991,7 +2017,7 @@ button {
   border-radius: 4px;
   background: #15191d;
   text-transform: uppercase;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .result-allow,
@@ -2021,15 +2047,15 @@ button {
 .audit-links code {
   color: #86bea9;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: var(--type-micro);
 }
 
 .audit-reason {
   max-width: 860px;
   margin: 9px 0 0;
   color: #69727b;
-  font-size: 9px;
-  line-height: 1.55;
+  font-size: var(--type-meta);
+  line-height: var(--leading-body);
 }
 
 @media (max-width: 900px) {
@@ -2124,7 +2150,7 @@ button {
   border-radius: 999px;
   color: #79828b;
   background: #0d1014;
-  font-size: 9px;
+  font-size: var(--type-meta);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2162,7 +2188,7 @@ button {
 .settings-card h2 {
   margin: 5px 0 8px;
   color: #cbd1d6;
-  font-size: 15px;
+  font-size: var(--type-heading);
   font-weight: 620;
 }
 
@@ -2170,7 +2196,7 @@ button {
   max-width: 680px;
   margin: 0 0 16px;
   color: #646d76;
-  font-size: 10px;
+  font-size: var(--type-label);
   line-height: 1.6;
 }
 
@@ -2183,7 +2209,7 @@ button {
   display: block;
   margin-bottom: 5px;
   color: #717a83;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .settings-card input {
@@ -2196,7 +2222,7 @@ button {
   color: #c4cad0;
   background: #090c0f;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--type-meta);
 }
 
 .settings-card input:focus {
@@ -2214,7 +2240,7 @@ button {
   background: #173326;
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 650;
 }
 
@@ -2242,7 +2268,7 @@ button {
 
 .status-card dt {
   color: #555e67;
-  font-size: 8px;
+  font-size: var(--type-micro);
   text-transform: uppercase;
 }
 
@@ -2251,7 +2277,7 @@ button {
   overflow-wrap: anywhere;
   color: #8d969f;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
+  font-size: var(--type-meta);
   line-height: 1.5;
 }
 
