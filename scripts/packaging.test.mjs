@@ -62,7 +62,7 @@ test("installed builds prefer packaged broker and tunnel runtimes without removi
 
 test("package workflow exercises installer lifecycle rather than only compiling", () => {
   assert.match(workflow, /prepare-windows-runtime\.ps1/);
-  assert.match(workflow, /tauri:build -- --config src-tauri\/tauri\.release\.conf\.json/);
+  assert.match(workflow, /npm run tauri:build:release/);
   assert.match(workflow, /Install, launch, and uninstall smoke/);
   assert.match(workflow, /upload-artifact@v4/);
 });
