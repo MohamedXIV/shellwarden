@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- A frictionless Windows NSIS installer pipeline with a standalone execution broker and pinned, checksum-verified Secure MCP Tunnel runtime, so installed dogfood builds no longer require a developer Python/npm/cargo setup.
 - Initial product definition, architecture, security model, UX contract, roadmap, and release policy.
 - Development version source initialized at `0.0.0-dev`.
 - Windows-first Tauri 2 + React/TypeScript application foundation with a dark control-center shell and roadmap navigation.

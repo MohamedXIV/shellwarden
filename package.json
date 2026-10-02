@@ -20,7 +20,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "version:check": "node scripts/release.mjs check",
-    "release:prepare": "node scripts/release.mjs prepare"
+    "release:prepare": "node scripts/release.mjs prepare",
+    "tauri:build:release": "tauri build --config src-tauri/tauri.release.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

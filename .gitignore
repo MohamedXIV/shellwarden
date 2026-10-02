@@ -9,3 +9,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+execution/build/
+execution/dist/
+packaging/runtime/

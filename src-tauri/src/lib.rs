@@ -30,6 +30,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
+    path::BaseDirectory,
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, RunEvent, UserAttentionType, WindowEvent,
 };
@@ -547,7 +548,13 @@ pub fn run() {
                 .initialize(&audit_database)
                 .map_err(std::io::Error::other)?;
 
-            app.state::<ExecutionCoreState>().start(&repository_root());
+            let packaged_broker = app
+                .path()
+                .resolve("execution/shellwarden-broker.exe", BaseDirectory::Resource)
+                .ok()
+                .filter(|path| path.is_file());
+            app.state::<ExecutionCoreState>()
+                .start(&repository_root(), packaged_broker.as_deref());
             app.state::<McpServerState>().start(app.handle().clone());
 
             let policy_events = app
