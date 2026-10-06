@@ -1,7 +1,7 @@
 use std::{
     env,
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -267,11 +267,14 @@ fn activation_endpoint_path_from_environment() -> Option<PathBuf> {
 
 fn read_bounded_line(stream: &mut TcpStream) -> Result<String, String> {
     let mut payload = String::new();
-    stream
-        .take(MAX_ACTIVATION_BYTES)
-        .read_to_string(&mut payload)
+    BufReader::new(stream)
+        .read_line(&mut payload)
         .map_err(|error| format!("failed to read notification activation: {error}"))?;
-    let route = payload.lines().next().unwrap_or_default().trim().to_string();
+    if payload.len() as u64 > MAX_ACTIVATION_BYTES {
+        return Err("notification activation payload is too large".to_string());
+    }
+
+    let route = payload.trim().to_string();
     if route.is_empty() {
         Err("notification activation payload is empty".to_string())
     } else {
