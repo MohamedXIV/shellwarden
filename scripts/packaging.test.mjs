@@ -68,7 +68,7 @@ test("stored Windows notifications route clicks back into the running app", () =
   assert.match(notificationActivation, /shellwarden-notification:\/\/approval\//);
   assert.match(notificationActivation, /shellwarden-notification:\/\/settings/);
   assert.match(notificationActivation, /--notification-activation/);
-  assert.match(notificationActivation, /Software\\\\Classes/);
+  assert.match(notificationActivation, /Software\\Classes/);
   assert.match(notificationActivation, /TcpListener::bind/);
   assert.match(notificationActivation, /run_on_main_thread/);
 });
