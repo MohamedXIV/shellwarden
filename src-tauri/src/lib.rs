@@ -8,6 +8,8 @@ mod process_supervisor;
 mod remote_access;
 mod remote_mcp;
 mod risk_policy;
+#[cfg(windows)]
+mod windows_notification_activation;
 
 use approval_state::{
     ApprovalEvent, ApprovalResolution, ApprovalState, ApprovalStatus, ApprovalView,
@@ -49,6 +51,11 @@ const APPROVAL_NOTIFICATION_BODY: &str =
     "A command is waiting for review. Open ShellWarden to inspect the request.";
 const REMOTE_ERROR_NOTIFICATION_BODY: &str =
     "Remote access needs attention. Open ShellWarden for diagnostics.";
+
+#[cfg(windows)]
+pub fn intercept_windows_notification_activation() -> bool {
+    windows_notification_activation::intercept_process_activation()
+}
 
 #[derive(Default)]
 pub struct NotificationTracker {
@@ -267,48 +274,21 @@ fn show_main_window_ref(app: &AppHandle) {
 
 #[cfg(windows)]
 fn show_windows_approval_notification(app: &AppHandle, approval_id: &str) -> Result<(), String> {
-    use tauri_winrt_notification::Toast;
-
-    let app_id = app.config().identifier.clone();
-    let activation_app = app.clone();
-    let activation_approval_id = approval_id.to_string();
-
-    Toast::new(&app_id)
-        .title("ShellWarden — Approval Needed")
-        .text1(APPROVAL_NOTIFICATION_BODY)
-        .on_activated(move |_| {
-            let app = activation_app.clone();
-            let approval_id = activation_approval_id.clone();
-            let _ = activation_app.run_on_main_thread(move || {
-                show_main_window_ref(&app);
-                let _ = app.emit("shellwarden://open-approval", approval_id);
-            });
-            Ok(())
-        })
-        .show()
-        .map_err(|error| error.to_string())
+    windows_notification_activation::show_approval(
+        app,
+        approval_id,
+        "ShellWarden — Approval Needed",
+        APPROVAL_NOTIFICATION_BODY,
+    )
 }
 
 #[cfg(windows)]
 fn show_windows_remote_error_notification(app: &AppHandle) -> Result<(), String> {
-    use tauri_winrt_notification::Toast;
-
-    let app_id = app.config().identifier.clone();
-    let activation_app = app.clone();
-
-    Toast::new(&app_id)
-        .title("ShellWarden — Remote Access Error")
-        .text1(REMOTE_ERROR_NOTIFICATION_BODY)
-        .on_activated(move |_| {
-            let app = activation_app.clone();
-            let _ = activation_app.run_on_main_thread(move || {
-                show_main_window_ref(&app);
-                let _ = app.emit("shellwarden://open-settings", ());
-            });
-            Ok(())
-        })
-        .show()
-        .map_err(|error| error.to_string())
+    windows_notification_activation::show_settings(
+        app,
+        "ShellWarden — Remote Access Error",
+        REMOTE_ERROR_NOTIFICATION_BODY,
+    )
 }
 
 fn show_approval_notification(app: &AppHandle, approval_id: &str) {
@@ -538,6 +518,11 @@ pub fn run() {
             remote_access_resume
         ])
         .setup(|app| {
+            #[cfg(windows)]
+            if let Err(error) = windows_notification_activation::install(app.handle()) {
+                eprintln!("ShellWarden notification activation unavailable: {error}");
+            }
+
             let app_data_dir = app.path().app_data_dir()?;
             let policy_database = app_data_dir.join("permissions.sqlite3");
             app.state::<PolicyState>()
@@ -684,6 +669,8 @@ pub fn run() {
             app_handle.state::<McpServerState>().stop();
             app_handle.state::<ExecutionCoreState>().stop();
             let _ = app_handle.state::<ProcessSupervisor>().stop_all();
+            #[cfg(windows)]
+            windows_notification_activation::cleanup();
         }
     });
 }
