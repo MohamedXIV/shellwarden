@@ -3466,6 +3466,8 @@ dependencies = [
  "tauri-winrt-notification",
  "tokio",
  "tokio-util",
+ "windows",
+ "winreg",
 ]
 
 [[package]]

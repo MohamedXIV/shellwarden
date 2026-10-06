@@ -19,6 +19,10 @@ const executionCore = readFileSync(
 );
 const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
 const main = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+const notificationActivation = readFileSync(
+  new URL("../src-tauri/src/windows_notification_activation.rs", import.meta.url),
+  "utf8",
+);
 const remote = readFileSync(
   new URL("../src-tauri/src/remote_access.rs", import.meta.url),
   "utf8",
@@ -56,6 +60,17 @@ test("installed Windows app does not allocate a console window", () => {
     main,
     /#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]/,
   );
+});
+
+test("stored Windows notifications route clicks back into the running app", () => {
+  assert.match(main, /intercept_windows_notification_activation/);
+  assert.match(notificationActivation, /activationType="protocol"/);
+  assert.match(notificationActivation, /shellwarden-notification:\/\/approval\//);
+  assert.match(notificationActivation, /shellwarden-notification:\/\/settings/);
+  assert.match(notificationActivation, /--notification-activation/);
+  assert.match(notificationActivation, /Software\\Classes/);
+  assert.match(notificationActivation, /TcpListener::bind/);
+  assert.match(notificationActivation, /run_on_main_thread/);
 });
 
 test("installed builds prefer packaged broker and tunnel runtimes without removing dev fallbacks", () => {
