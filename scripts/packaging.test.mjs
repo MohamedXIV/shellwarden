@@ -18,6 +18,7 @@ const executionCore = readFileSync(
   "utf8",
 );
 const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+const main = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
 const remote = readFileSync(
   new URL("../src-tauri/src/remote_access.rs", import.meta.url),
   "utf8",
@@ -48,6 +49,13 @@ test("packaging pins and verifies the proven tunnel runtime", () => {
   assert.match(runtimePrep, /Get-FileHash -Algorithm SHA256/);
   assert.match(runtimePrep, /tunnel-client-LICENSES\.txt/);
   assert.match(runtimePrep, /tunnel-client\.spdx\.json/);
+});
+
+test("installed Windows app does not allocate a console window", () => {
+  assert.match(
+    main,
+    /#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]/,
+  );
 });
 
 test("installed builds prefer packaged broker and tunnel runtimes without removing dev fallbacks", () => {
