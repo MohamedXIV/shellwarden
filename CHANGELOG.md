@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Hard Exit now resolves unfinished activity as cancelled before terminating execution-core and managed process trees.
 
 ### Fixed
+- Stored Windows Action Center notifications now use a registered protocol activation route that restores the running ShellWarden window and navigates to the relevant approval or Settings surface when clicked.
+- Packaged Windows builds no longer allocate a console window alongside the desktop UI.
 - Explicit approval-notification navigation now releases its focus target after reaching the requested card, so later polling cannot pull the operator back to an old approval.
 - Secure MCP Tunnel startup now supplies the structured log format required by `tunnel-client` when an explicit log level is configured.
 
